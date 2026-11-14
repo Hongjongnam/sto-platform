@@ -37,6 +37,29 @@ slither . --fail-medium
 
 Toolchain: Hardhat 3, Solidity 0.8.34 (EVM target `cancun`), OpenZeppelin Contracts 5.6, ethers v6, Mocha.
 
+### IdentityRegistry
+
+Maps wallets to investors. A trusted KYC issuer signs an EIP-712 claim off-chain and a registrar submits it; no personal data is stored on-chain.
+
+```
+InvestorClaim(address wallet, bytes32 investorId, uint16 country, uint8 investorType, uint64 expiry, uint256 nonce)
+```
+
+| Rule | Behaviour |
+|---|---|
+| Who can sign | Only issuers added by the admin with `setTrustedIssuer` |
+| Who can submit | `REGISTRAR_ROLE` |
+| Replay protection | EIP-712 domain (chain ID and contract address) plus a per-wallet nonce |
+| Investor vs. wallet | `investorId` is an opaque hash of an off-chain identifier; several wallets can share one investor |
+| Re-linking | A wallet stays linked to the investor it was first registered for; renewals must carry the same `investorId` |
+| Expiry | `isVerified` turns false once `expiry` passes |
+| Revocation | `revokeIdentity` clears verification but keeps the wallet-investor link, so balances can still be attributed |
+| Issuer removal | Identities already signed by a removed issuer stay valid until they expire or are revoked |
+
+Investor types: `0` retail, `1` qualified, `2` professional. Country is the ISO 3166-1 numeric code.
+
+Slither's `timestamp` detector is disabled in `slither.config.json`: identity expiry is time-based by design.
+
 ## Local network
 
 A four-validator QBFT network with a one-second block time, zero gas price and account permissioning.
