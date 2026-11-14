@@ -23,6 +23,7 @@ export default defineConfig({
       // Tests drive the worker explicitly.
       OUTBOX_WORKER: 'off',
       INDEXER_WORKER: 'off',
+      DEMO_MODE: 'on',
     },
   },
 });

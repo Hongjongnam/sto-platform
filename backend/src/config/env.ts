@@ -8,6 +8,8 @@ const envSchema = z.object({
   CHAIN_MNEMONIC: z.string().min(1),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_TTL: z.string().default('8h'),
+  /** Enables the public demo endpoints under /demo. Never turn this on for a real deployment. */
+  DEMO_MODE: z.enum(['on', 'off']).default('off'),
 });
 
 export type Env = z.infer<typeof envSchema>;
