@@ -29,3 +29,7 @@
 
 # Snapshot cheatcodes output
 /snapshots
+/deployments
+
+# Upgrade manifests of local development networks
+/.openzeppelin/unknown-*.json

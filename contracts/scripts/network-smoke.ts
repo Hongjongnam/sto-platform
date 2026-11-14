@@ -1,8 +1,7 @@
 // Smoke test for a live network: deploys USDC, mints, and checks that an
 // account outside the node allowlist cannot submit transactions.
 //
-//   BESU_RPC_URL=http://127.0.0.1:8545 BESU_DEPLOYER_KEY=0x... \
-//     npx hardhat run scripts/network-smoke.ts --network besu
+//   npx hardhat run scripts/network-smoke.ts --network besu
 import { network } from "hardhat";
 
 const { ethers } = await network.create();

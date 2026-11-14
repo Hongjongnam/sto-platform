@@ -23,7 +23,7 @@ export default defineConfig({
       type: "http",
       chainType: "l1",
       url: configVariable("BESU_RPC_URL"),
-      accounts: [configVariable("BESU_DEPLOYER_KEY")],
+      accounts: { mnemonic: configVariable("BESU_MNEMONIC"), count: 20 },
       gasPrice: 0,
     },
   },

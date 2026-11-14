@@ -145,6 +145,35 @@ Holds up to ten rule modules. A movement is allowed only if every module accepts
 | `MaxHoldersModule` | The number of holding investors may not exceed the cap. Existing holders can always receive, and a holder can hand over their whole position |
 | `CountryAllowModule` | Only investors from allowed countries can receive |
 
+### DvPSettlement
+
+Settles the security leg and the cash leg of a trade in one transaction.
+
+| Rule | Behaviour |
+|---|---|
+| Trade identity | `tradeId` is the hash of the off-chain trade number; a trade number can be registered once |
+| Consent | Seller and buyer both sign the exact terms (EIP-712): trade, tokens, quantity, price, expiry. An allowance alone would not prove consent to the price |
+| Tokens | Only tokens the admin has allowed can be used for either leg |
+| Atomicity | If either transfer fails, including a rejection by the security token's identity or compliance checks, nothing moves and the trade stays pending |
+| Retry | A pending trade can be settled again once the cause of the failure is fixed |
+| Expiry | An expired trade cannot be settled, only cancelled |
+
+### DividendDistributor
+
+Pays a cash distribution pro rata to balances at a record block. Holders claim their own share, so the cost does not grow with the number of holders and one failed payment cannot block the rest.
+
+- Shares are computed from `balanceOfAt` / `totalSupplyAt`; movements after the record block do not matter.
+- A holder must be verified and not frozen at claim time, and can claim once.
+- After the claim deadline the issuer sweeps unclaimed amounts and rounding remainders. Claimed plus swept always equals the amount deposited.
+
+### RedemptionManager
+
+Redeems units for cash at a fixed price per unit. The units are burned and the holder is paid in the same transaction.
+
+- Opening a round pulls enough cash to redeem the whole outstanding supply.
+- Only verified holders can redeem, and only free units of an account that is not frozen. The token itself refuses to burn frozen units, so redemption cannot be used to get around a freeze.
+- After the deadline the issuer takes back the unpaid deposit.
+
 ### Tests
 
 | Suite | What it covers |
@@ -152,6 +181,9 @@ Holds up to ten rule modules. A movement is allowed only if every module accepts
 | `IdentityRegistry.test.ts` | Signed claims, replay protection, expiry, revocation, investor links |
 | `Compliance.test.ts` | Module management and each rule, including a rule added to a token that already has holders |
 | `SecurityToken.test.ts` | Every row of the behaviour table, roles, snapshots, upgrade with state preserved |
+| `DvPSettlement.test.ts` | Signed terms, allowed tokens, atomicity when either leg fails, retry, expiry, cancellation |
+| `CorporateActions.test.ts` | Dividend shares, eligibility, deadline and sweep; redemption, frozen units, funding, closing |
+| `Deployment.test.ts` | The deployment and handover library used by the scripts |
 | `Invariants.test.ts` | 400 seeded random operations per seed (transfers, mints, burns, freezes, forced transfers, recovery, KYC revocation, pause), checking after every 20 steps that: balances sum to the total supply, total supply stays within the registered supply, frozen never exceeds balance, investor aggregates match wallet balances, the holder count is exact, and unverified wallets are never credited |
 
 ## Local network
@@ -176,15 +208,78 @@ docker compose down -v   # stop and delete chain data
 
 `permissions_config.toml` lists the first ten accounts of the standard development mnemonic. Replace them before using the network for anything other than local development. After editing the file, copy it into each `network/node*/` directory and restart the nodes.
 
+### Connecting Hardhat
+
+The `besu` network in `hardhat.config.ts` reads two variables:
+
+```bash
+export BESU_RPC_URL=http://127.0.0.1:8545
+export BESU_MNEMONIC="test test test test test test test test test test test junk"
+```
+
+The mnemonic above is the public development mnemonic; its first twenty accounts are the ones in `permissions_config.toml`.
+
 ### Smoke test
 
 Deploys `USDC`, mints, and checks that a transaction from an account outside the allowlist is rejected.
 
 ```bash
 cd contracts
-BESU_RPC_URL=http://127.0.0.1:8545 \
-BESU_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
 npx hardhat run scripts/network-smoke.ts --network besu
 ```
 
-The key above is account #0 of the development mnemonic and is public.
+## Deployment
+
+```bash
+cd contracts
+npx hardhat run scripts/deploy.ts --network besu            # as the deployer (account 0)
+npx hardhat run scripts/accept-handover.ts --network besu   # as the admin
+```
+
+`deploy.ts` deploys and wires all contracts, grants the operational roles, and writes the addresses, the implementation address, the role holders and the first deployment block to `deployments/<network>.json`.
+
+Roles and parameters come from `scripts/config/local.json` (override with `DEPLOY_CONFIG=<path>`):
+
+| Account | Role |
+|---|---|
+| 0 | Deployer. Holds no privileges once the handover is complete |
+| 1 | Admin of every contract |
+| 2 | Token issuer |
+| 3 | Enforcer |
+| 4 | Pauser |
+| 5 | Registrar (identity registry and registered supply) |
+| 6 | Upgrader |
+| 7 | Settlement operator |
+| 8 | KYC issuer |
+| 9 | Treasury (dividends and redemption) |
+
+**Handover.** The deployer never keeps control:
+
+- Contracts with a plain admin role (identity registry, settlement, dividends, redemption): the deployer grants the admin role to the admin and renounces its own in the same run.
+- Compliance and its modules (`Ownable2Step`) and the token (`AccessControlDefaultAdminRules`): the deployer starts a two-step transfer, and nothing changes hands until the admin accepts.
+
+`accept-handover.ts` accepts the pending transfers, applies the configured delay for future admin transfers, and then verifies every contract: the admin is in control, each role is held by the configured account, and the deployer has no role or ownership left. It fails if anything is off.
+
+## End-to-end scenario
+
+Runs the whole lifecycle against a fresh deployment and checks the outcome of every step, including the operations that must be rejected.
+
+```bash
+cd contracts
+npx hardhat run scripts/e2e.ts --network besu
+```
+
+| Step | What happens | What must be rejected |
+|---|---|---|
+| 1 | Registered supply is set; three investors pass KYC | |
+| 2 | 600 units are issued | Mint to an unverified wallet; mint above the holding cap |
+| 3 | Transfer between investors | Transfer to an unverified wallet |
+| 4 | Part of a balance is frozen | Transfer of frozen units |
+| 5 | DvP: 10 units against 1,000 USDC, terms signed by both parties | Reuse of the trade number |
+| 6 | Dividend paid pro rata to record-block balances | Second claim |
+| 7 | Account frozen; court-ordered forced transfer out of it | Transfer from the frozen account |
+| 8 | Lost wallet recovered to a new wallet of the same investor | |
+| 9 | Redemption: units cancelled against cash | |
+| 10 | Balances add up to the total supply; holder count and investor balances are exact | |
+
+Accounts 10 to 14 of the development mnemonic act as investors.
