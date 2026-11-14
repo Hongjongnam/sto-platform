@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AuthModule } from './auth/auth.module.js';
 import { ChainModule } from './chain/chain.module.js';
 import { type Env, validateEnv } from './config/env.js';
 import { dataSourceOptions } from './database/data-source.options.js';
@@ -18,9 +21,13 @@ import { OutboxModule } from './outbox/outbox.module.js';
         migrationsRun: true,
       }),
     }),
+    // General request limit per client; individual routes can tighten it.
+    ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 300 }] }),
+    AuthModule,
     ChainModule,
     OutboxModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
   controllers: [HealthController],
 })
 export class AppModule {}
