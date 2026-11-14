@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# env
+.env
+.env.*
+!.env.example
+
+# hardhat
+artifacts/
+cache/
+typechain-types/
+coverage/
+coverage.json
+
+# build
+dist/
+*.log
+
+# keys / network data
+*.pem
+*.key
+infra/besu/data/
+infra/besu/keys/
+infra/besu/genesis.json
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
