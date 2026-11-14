@@ -7,8 +7,10 @@ Security token contracts (ERC-3643 / ERC-1400) with DvP settlement on a permissi
 ## Repository layout
 
 ```
-contracts/     Hardhat project: Solidity sources, tests, scripts
-infra/besu/    Local 4-validator QBFT network (Docker Compose)
+contracts/        Hardhat project: Solidity sources, tests, scripts
+backend/          NestJS API (work in progress)
+infra/besu/       Local 4-validator QBFT network (Docker Compose)
+infra/postgres/   PostgreSQL for the backend (Docker Compose)
 ```
 
 ## Requirements
@@ -288,6 +290,23 @@ Roles and parameters come from `scripts/config/local.json` (override with `DEPLO
 - Compliance and its modules (`Ownable2Step`) and the token (`AccessControlDefaultAdminRules`): the deployer starts a two-step transfer, and nothing changes hands until the admin accepts.
 
 `accept-handover.ts` accepts the pending transfers, applies the configured delay for future admin transfers, and then verifies every contract: the admin is in control, each role is held by the configured account, and the deployer has no role or ownership left. It fails if anything is off.
+
+## Backend
+
+NestJS 12, TypeORM and PostgreSQL 16. The schema changes only through migrations, and the environment is validated at startup.
+
+```bash
+cd infra/postgres && docker compose up -d     # PostgreSQL on 127.0.0.1:54320
+cd backend
+cp .env.example .env                          # set JWT_SECRET to a random value of 32+ characters
+npm ci
+npm run build && node --env-file=.env dist/main.js
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Liveness and database connectivity |
+| `GET /docs` | OpenAPI documentation |
 
 ## End-to-end scenario
 

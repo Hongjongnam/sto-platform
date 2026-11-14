@@ -27,3 +27,6 @@ infra/besu/.generated/
 .DS_Store
 .idea/
 .vscode/
+
+# backend
+backend/.env
