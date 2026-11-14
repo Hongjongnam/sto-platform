@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import type { ChainEvent } from "../../lib/api";
-import { cash, EVENT_LABELS, reasonText, shortAddress, shortHash, units } from "../../lib/format";
+import { EVENT_LABELS, reasonText, shortAddress, units } from "../../lib/format";
 import { useApiQuery } from "../../lib/hooks";
-import { REASONS, useWalletNames, WalletSelect } from "../../components/domain";
+import { REASONS, useEventSummary, WalletSelect } from "../../components/domain";
 import { type Column, Field, Mono, Notice, Panel, Select, Table } from "../../components/ui";
 
 const PRIVILEGED = ["Issued", "Redeemed", "AddressFrozen", "TokensFrozen", "TokensUnfrozen", "ForcedTransfer", "RecoverySuccess", "PauseStateChanged", "RegisteredSupplySet", "IdentityRegistered", "IdentityRevoked", "TradeSettled", "TradeCancelled"];
@@ -15,53 +15,9 @@ export default function AuditPage() {
   const [openId, setOpenId] = useState<number | null>(null);
   const query = new URLSearchParams({ limit: "200", ...(name ? { name } : {}), ...(wallet ? { address: wallet } : {}) });
   const { data: events } = useApiQuery<ChainEvent[]>(`/events?${query}`);
-  const walletName = useWalletNames();
   const selected = events?.find((event) => event.id === openId);
 
-  const summary = (event: ChainEvent): string => {
-    const a = event.args;
-    switch (event.name) {
-      case "Transfer":
-        return `${walletName(a.from)} → ${walletName(a.to)} · ${units(a.value)}`;
-      case "Issued":
-        return `${walletName(a.to)}에게 ${units(a.amount)}`;
-      case "Redeemed":
-        return a.from ? `${walletName(a.from)}에서 ${units(a.amount)}` : `${walletName(a.holder)} · ${units(a.quantity)}단위 / ${cash(a.payout)} USDC`;
-      case "ForcedTransfer":
-        return `${walletName(a.from)} → ${walletName(a.to)} · ${units(a.amount)}`;
-      case "TokensFrozen":
-      case "TokensUnfrozen":
-        return `${walletName(a.account)} · ${units(a.amount)}`;
-      case "AddressFrozen":
-        return `${walletName(a.account)} · ${a.frozen === "true" ? "동결" : "해제"}`;
-      case "RecoverySuccess":
-        return `${walletName(a.lostWallet)} → ${walletName(a.newWallet)} · ${units(a.amount)}`;
-      case "IdentityRegistered":
-      case "IdentityRevoked":
-        return walletName(a.wallet);
-      case "RegisteredSupplySet":
-        return `${units(a.previous)} → ${units(a.current)}`;
-      case "PauseStateChanged":
-        return a.paused === "true" ? "정지" : "재개";
-      case "TradeCreated":
-        return `${walletName(a.seller)} → ${walletName(a.buyer)} · ${units(a.quantity)}단위 / ${cash(a.price)} USDC`;
-      case "TradeSettled":
-      case "TradeCancelled":
-        return `거래 ${shortHash(a.tradeId)}`;
-      case "DistributionCreated":
-        return `총 ${cash(a.totalAmount)} USDC · 기준 블록 ${units(a.recordBlock)}`;
-      case "DividendClaimed":
-        return `${walletName(a.holder)} · ${cash(a.amount)} USDC`;
-      case "DistributionSwept":
-        return `${cash(a.amount)} USDC 회수`;
-      case "RedemptionOpened":
-        return `1단위당 ${cash(a.pricePerUnit)} USDC`;
-      case "Approval":
-        return `${walletName(a.owner)} · 한도 ${units(a.value)}`;
-      default:
-        return "";
-    }
-  };
+  const summary = useEventSummary();
 
   const columns: Column<ChainEvent>[] = [
     { header: "블록", cell: (row) => units(row.blockNumber), numeric: true, width: "70px" },

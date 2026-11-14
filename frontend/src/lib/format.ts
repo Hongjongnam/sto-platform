@@ -27,9 +27,12 @@ export function shortHash(hash: string | null | undefined): string {
   return `${hash.slice(0, 10)}…${hash.slice(-6)}`;
 }
 
+/** "2026-11-14 23:06:19" in the viewer's time zone: fixed width, so table columns stay aligned. */
 export function dateTime(iso: string | null | undefined): string {
   if (!iso) return "-";
-  return new Date(iso).toLocaleString("ko-KR", { hour12: false });
+  const d = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 /** Decodes a bytes32 reason recorded on chain back into its text code. */

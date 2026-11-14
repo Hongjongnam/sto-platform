@@ -5,13 +5,13 @@ import type { ChainEvent, Portfolio, Transaction } from "../../lib/api";
 import { cash, EVENT_LABELS, units } from "../../lib/format";
 import { useApiQuery, useChainActions } from "../../lib/hooks";
 import { useSession } from "../../lib/session";
-import { useWalletNames, WalletSelect } from "../../components/domain";
+import { useEventSummary, WalletSelect } from "../../components/domain";
 import { Badge, Button, type Column, Field, Input, Notice, Panel, Rejection, Stat, Table } from "../../components/ui";
 
 export default function WalletPage() {
   const { call } = useSession();
   const { waitForTransaction } = useChainActions();
-  const walletName = useWalletNames();
+  const summary = useEventSummary();
   const [wallet, setWallet] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
@@ -38,10 +38,7 @@ export default function WalletPage() {
   const columns: Column<ChainEvent>[] = [
     { header: "블록", cell: (row) => units(row.blockNumber), numeric: true, width: "70px" },
     { header: "이벤트", cell: (row) => EVENT_LABELS[row.name] ?? row.name },
-    {
-      header: "내용",
-      cell: (row) => (row.name === "Transfer" ? `${walletName(row.args.from)} → ${walletName(row.args.to)} · ${units(row.args.value)}` : (row.args.amount ?? row.args.value ?? "")),
-    },
+    { header: "내용", cell: summary },
   ];
 
   return (

@@ -9,6 +9,38 @@ import { Button, Mono, Notice, Panel } from "../../components/ui";
 
 type StepState = { status: "idle" | "running" | "done" | "error"; lines: Line[]; error?: string };
 
+interface Progress {
+  states: StepState[];
+  cast: Partial<Cast>;
+}
+
+const PROGRESS_KEY = "sto-demo-guide";
+const emptyStates = (): StepState[] => STEPS.map(() => ({ status: "idle", lines: [] }));
+
+function loadProgress(): Progress {
+  try {
+    const raw = window.sessionStorage.getItem(PROGRESS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Progress;
+      if (parsed.states.length === STEPS.length) {
+        // A step that was running when the page was left did not finish here.
+        return { cast: parsed.cast, states: parsed.states.map((state) => (state.status === "running" ? { status: "idle", lines: [] } : state)) };
+      }
+    }
+  } catch {
+    // Storage unavailable or unreadable: start from the beginning.
+  }
+  return { states: emptyStates(), cast: {} };
+}
+
+function saveProgress(progress: Progress): void {
+  try {
+    window.sessionStorage.setItem(PROGRESS_KEY, JSON.stringify(progress));
+  } catch {
+    // Storage unavailable: progress lasts until the page is left.
+  }
+}
+
 const AFTER: { href: string; label: string; body: string }[] = [
   { href: "/audit", label: "감사 로그", body: "방금 한 모든 작업이 누가, 왜 했는지와 함께 체인에 남은 기록" },
   { href: "/dashboard", label: "대시보드", body: "발행 총량, 보유 현황, 최근 이벤트" },
@@ -19,9 +51,17 @@ const AFTER: { href: string; label: string; body: string }[] = [
 export default function GuidePage() {
   const { call } = useSession();
   const chain = useChainActions();
-  const cast = useRef<Partial<Cast>>({});
-  const [states, setStates] = useState<StepState[]>(() => STEPS.map(() => ({ status: "idle", lines: [] })));
-  const update = (index: number, next: StepState) => setStates((current) => current.map((state, i) => (i === index ? next : state)));
+  // Progress is kept for the browser session, so visiting another screen and coming back
+  // does not lose the steps already run or the investors they created.
+  const [saved] = useState(loadProgress);
+  const cast = useRef<Partial<Cast>>(saved.cast);
+  const [states, setStates] = useState<StepState[]>(saved.states);
+  const update = (index: number, next: StepState) =>
+    setStates((current) => {
+      const updated = current.map((state, i) => (i === index ? next : state));
+      saveProgress({ states: updated, cast: cast.current });
+      return updated;
+    });
   const running = states.some((state) => state.status === "running");
   const nextIndex = states.findIndex((state) => state.status !== "done");
 
@@ -37,7 +77,9 @@ export default function GuidePage() {
 
   const restart = () => {
     cast.current = {};
-    setStates(STEPS.map(() => ({ status: "idle", lines: [] })));
+    const fresh = emptyStates();
+    saveProgress({ states: fresh, cast: {} });
+    setStates(fresh);
   };
 
   return (

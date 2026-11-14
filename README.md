@@ -4,6 +4,10 @@ Security token contracts (ERC-3643 / ERC-1400) with DvP settlement on a permissi
 
 > The contracts in this repository have not been audited. Do not use them in production.
 
+A visitor enters the demo with one click and walks through nine steps that send real transactions, including the attempts the contracts must reject:
+
+![Guided scenario](docs/screenshots/guide.png)
+
 ## Quick start
 
 Everything on one machine: four Besu validators, PostgreSQL, the backend and the frontend. Requires Docker and Node.js (the contracts are deployed from the host).
@@ -22,6 +26,7 @@ open http://localhost:4790
 contracts/        Hardhat project: Solidity sources, tests, scripts
 backend/          NestJS API
 frontend/         Next.js operator console and guided demo
+docs/screenshots/ Screens used in this README
 infra/besu/       Local 4-validator QBFT network (Docker Compose)
 infra/postgres/   PostgreSQL for the backend (Docker Compose)
 infra/demo/       The whole system in one Compose project, with start and reset scripts
@@ -421,6 +426,15 @@ The backend must run with `DEMO_MODE=on`: the console is entered through a one-c
 | Investor account | Balances, free and frozen units, transfers with the same on-chain checks |
 
 Tables collapse into cards on narrow screens.
+
+| | |
+|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) Dashboard | ![Enforcement](docs/screenshots/enforcement.png) Enforcement history, approver view |
+| ![Issuance](docs/screenshots/issuance.png) A rejected mint with its explanation | ![Trades](docs/screenshots/trades.png) A settled trade |
+| ![Audit log](docs/screenshots/audit.png) Audit log | ![Reconciliation](docs/screenshots/recon.png) Reconciliation reports |
+| ![Investor account](docs/screenshots/wallet.png) Investor account | |
+
+The investor names in the screenshots are fictional.
 
 ## End-to-end scenario
 

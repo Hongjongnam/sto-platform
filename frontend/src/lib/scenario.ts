@@ -146,10 +146,15 @@ export const STEPS: Step[] = [
       });
       lines.push(done("요청 담당자가 수량 동결 요청을 올림 (근거 문서의 해시가 함께 기록됨)"));
       try {
-        await actions.call(`/operations/${created.id}/approve`, { as: "requester" });
+        await actions.call(`/operations/${created.id}/approve`, { as: "requester", method: "POST" });
         lines.push(info("요청자가 스스로 승인하는 것이 막히지 않았습니다."));
       } catch (error) {
-        lines.push(blocked(`요청 담당자가 자기 요청을 직접 승인 시도 → 서버가 거부 (${error instanceof ApiError ? error.status : "오류"})`));
+        const status = error instanceof ApiError ? error.status : (error as { status?: number }).status;
+        lines.push(
+          blocked(
+            `요청 담당자가 자기 요청을 직접 승인 시도 → 서버가 거부 (HTTP ${status ?? "오류"}). 요청 담당자에게는 승인 권한이 없고, 두 권한을 모두 가진 사람이라도 자기가 올린 요청은 승인할 수 없습니다.`,
+          ),
+        );
       }
       await actions.call(`/operations/${created.id}/approve`, { as: "approver", body: { note: "결정문 확인" } });
       await actions.waitForOperation(created.id);
