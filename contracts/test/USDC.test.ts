@@ -3,10 +3,10 @@ import { network } from "hardhat";
 
 const { ethers, networkHelpers } = await network.create();
 
-describe("MockUSDC", function () {
+describe("USDC", function () {
   async function deployFixture() {
     const [deployer, alice] = await ethers.getSigners();
-    const usdc = await ethers.deployContract("MockUSDC");
+    const usdc = await ethers.deployContract("USDC");
     return { usdc, deployer, alice };
   }
 

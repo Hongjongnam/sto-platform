@@ -84,7 +84,7 @@ docker compose down -v   # stop and delete chain data
 
 ### Smoke test
 
-Deploys `MockUSDC`, mints, and checks that a transaction from an account outside the allowlist is rejected.
+Deploys `USDC`, mints, and checks that a transaction from an account outside the allowlist is rejected.
 
 ```bash
 cd contracts

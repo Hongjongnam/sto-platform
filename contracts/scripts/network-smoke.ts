@@ -1,4 +1,4 @@
-// Smoke test for a live network: deploys MockUSDC, mints, and checks that an
+// Smoke test for a live network: deploys USDC, mints, and checks that an
 // account outside the node allowlist cannot submit transactions.
 //
 //   BESU_RPC_URL=http://127.0.0.1:8545 BESU_DEPLOYER_KEY=0x... \
@@ -11,12 +11,12 @@ const { chainId } = await ethers.provider.getNetwork();
 const feeData = await ethers.provider.getFeeData();
 console.log(`chainId ${chainId}, deployer ${deployer.address}, gasPrice ${feeData.gasPrice}`);
 
-const usdc = await ethers.deployContract("MockUSDC");
+const usdc = await ethers.deployContract("USDC");
 await usdc.waitForDeployment();
 const address = await usdc.getAddress();
 const deployTx = usdc.deploymentTransaction();
 const receipt = await deployTx!.wait();
-console.log(`MockUSDC deployed at ${address} in block ${receipt!.blockNumber}`);
+console.log(`USDC deployed at ${address} in block ${receipt!.blockNumber}`);
 
 await (await usdc.mint(deployer.address, 1_000_000n)).wait();
 const balance = await usdc.balanceOf(deployer.address);
