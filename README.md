@@ -30,6 +30,7 @@ docs/screenshots/ Screens used in this README
 infra/besu/       Local 4-validator QBFT network (Docker Compose)
 infra/postgres/   PostgreSQL for the backend (Docker Compose)
 infra/demo/       The whole system in one Compose project, with start and reset scripts
+infra/blockscout/ Optional block explorer for the local network
 ```
 
 ## Requirements
@@ -279,6 +280,20 @@ Deploys `USDC`, mints, and checks that a transaction from an account outside the
 cd contracts
 npx hardhat run scripts/network-smoke.ts --network besu
 ```
+
+### Block explorer
+
+Blockscout can be started next to the network when a look at the raw chain is wanted. It is not part of the always-on stack.
+
+```bash
+cd infra/blockscout
+docker compose up -d      # http://localhost:4795, once ./infra/demo/up.sh is running
+docker compose down -v
+```
+
+The nodes do not expose the trace API, so internal transactions are not indexed. The explorer recognises the security token as a proxy and lists its transfers; fees are zero.
+
+![Block explorer](docs/screenshots/explorer.png)
 
 ## Deployment
 

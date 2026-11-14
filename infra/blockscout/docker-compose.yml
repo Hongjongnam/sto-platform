@@ -1,0 +1,96 @@
+# Block explorer for the local network. Not part of the always-on stack: start it when a
+# look at the raw chain is wanted, and stop it afterwards.
+#
+#   ../demo/up.sh                      # the network must be running first
+#   docker compose up -d               # http://localhost:4795
+#   docker compose down -v
+name: sto-blockscout
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: blockscout
+      POSTGRES_PASSWORD: blockscout
+      POSTGRES_DB: blockscout
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blockscout -d blockscout"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    image: ghcr.io/blockscout/blockscout:9.0.2
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c 'bin/blockscout eval "Elixir.Explorer.ReleaseTasks.create_and_migrate()" && bin/blockscout start'
+    environment:
+      ETHEREUM_JSONRPC_VARIANT: besu
+      ETHEREUM_JSONRPC_HTTP_URL: http://node1:8545
+      ETHEREUM_JSONRPC_TRACE_URL: http://node1:8545
+      DATABASE_URL: postgresql://blockscout:blockscout@db:5432/blockscout
+      ECTO_USE_SSL: "false"
+      SECRET_KEY_BASE: local-explorer-only-local-explorer-only-local-explorer-only-0123456789
+      PORT: 4000
+      CHAIN_ID: 20270
+      COIN: ETH
+      COIN_NAME: Ether
+      NETWORK: sto-platform
+      SUBNETWORK: Local QBFT
+      API_V2_ENABLED: "true"
+      DISABLE_EXCHANGE_RATES: "true"
+      # The nodes do not expose the trace API, so internal transactions are not indexed.
+      INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER: "true"
+      INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER: "true"
+      INDEXER_DISABLE_BLOCK_REWARD_FETCHER: "true"
+      MICROSERVICE_SC_VERIFIER_ENABLED: "false"
+      MICROSERVICE_VISUALIZE_SOL2UML_ENABLED: "false"
+      MICROSERVICE_SIG_PROVIDER_ENABLED: "false"
+    networks:
+      - default
+      - besu
+
+  frontend:
+    image: ghcr.io/blockscout/frontend:v2.3.5
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_PROTOCOL: http
+      NEXT_PUBLIC_API_HOST: localhost
+      NEXT_PUBLIC_API_PORT: 4795
+      NEXT_PUBLIC_API_BASE_PATH: /
+      NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL: ws
+      NEXT_PUBLIC_APP_PROTOCOL: http
+      NEXT_PUBLIC_APP_HOST: localhost
+      NEXT_PUBLIC_APP_PORT: 4795
+      NEXT_PUBLIC_NETWORK_NAME: sto-platform local
+      NEXT_PUBLIC_NETWORK_SHORT_NAME: sto
+      NEXT_PUBLIC_NETWORK_ID: 20270
+      NEXT_PUBLIC_NETWORK_CURRENCY_NAME: Ether
+      NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL: ETH
+      NEXT_PUBLIC_NETWORK_CURRENCY_DECIMALS: 18
+      NEXT_PUBLIC_IS_TESTNET: "true"
+      NEXT_PUBLIC_HOMEPAGE_CHARTS: "[]"
+      NEXT_PUBLIC_AD_BANNER_PROVIDER: none
+      NEXT_PUBLIC_AD_TEXT_PROVIDER: none
+
+  proxy:
+    image: nginx:alpine
+    depends_on:
+      - backend
+      - frontend
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:4795:80"
+
+volumes:
+  db:
+
+networks:
+  besu:
+    name: sto-demo_besu
+    external: true
