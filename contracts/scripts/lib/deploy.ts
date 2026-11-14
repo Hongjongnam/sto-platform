@@ -5,7 +5,14 @@ import hre from "hardhat";
 import type { NetworkConnection } from "hardhat/types/network";
 
 export interface DeployConfig {
-  token: { name: string; symbol: string; adminTransferDelay: number };
+  token: {
+    name: string;
+    symbol: string;
+    /** Seconds an admin transfer must wait before it can be accepted. */
+    adminTransferDelay: number;
+    /** Seconds an upgrade must wait between being scheduled and being executed. */
+    upgradeDelay: number;
+  };
   roles: {
     admin: string;
     issuer: string;
@@ -42,6 +49,7 @@ export interface Deployment {
     countryAllowModule: string;
     securityToken: string;
     securityTokenImplementation: string;
+    upgradeTimelock: string;
     cash: string;
     dvpSettlement: string;
     dividendDistributor: string;
@@ -134,7 +142,10 @@ export async function deployAll(
   await wait(token.grantRole(ROLE.ENFORCER, roles.enforcer));
   await wait(token.grantRole(ROLE.PAUSER, roles.pauser));
   await wait(token.grantRole(ROLE.REGISTRAR, roles.registrar));
-  await wait(token.grantRole(ROLE.UPGRADER, roles.upgrader));
+  // Upgrades go through a timelock: the upgrader account schedules and executes, but only the
+  // timelock itself holds the token's upgrader role.
+  const timelock = await deploy("UpgradeTimelock", [config.token.upgradeDelay, [roles.upgrader], [roles.upgrader]]);
+  await wait(token.grantRole(ROLE.UPGRADER, await timelock.getAddress()));
 
   // Handover
   for (const contract of [registry, dvp, dividend, redemption]) {
@@ -160,6 +171,7 @@ export async function deployAll(
       countryAllowModule: await country.getAddress(),
       securityToken: tokenAddress,
       securityTokenImplementation: implementation,
+      upgradeTimelock: await timelock.getAddress(),
       cash: cashAddress,
       dvpSettlement: await dvp.getAddress(),
       dividendDistributor: await dividend.getAddress(),
@@ -179,6 +191,7 @@ export async function attach(connection: NetworkConnection, deployment: Deployme
     maxHolders: await ethers.getContractAt("MaxHoldersModule", c.maxHoldersModule, signer),
     country: await ethers.getContractAt("CountryAllowModule", c.countryAllowModule, signer),
     token: await ethers.getContractAt("SecurityToken", c.securityToken, signer),
+    timelock: await ethers.getContractAt("UpgradeTimelock", c.upgradeTimelock, signer),
     cash: await ethers.getContractAt("USDC", c.cash, signer),
     dvp: await ethers.getContractAt("DvPSettlement", c.dvpSettlement, signer),
     dividend: await ethers.getContractAt("DividendDistributor", c.dividendDistributor, signer),
@@ -235,7 +248,12 @@ export async function verifyHandover(connection: NetworkConnection, deployment: 
   expect(await token.hasRole(ROLE.ENFORCER, roles.enforcer), "securityToken: enforcer role missing");
   expect(await token.hasRole(ROLE.PAUSER, roles.pauser), "securityToken: pauser role missing");
   expect(await token.hasRole(ROLE.REGISTRAR, roles.registrar), "securityToken: registrar role missing");
-  expect(await token.hasRole(ROLE.UPGRADER, roles.upgrader), "securityToken: upgrader role missing");
+  expect(await token.hasRole(ROLE.UPGRADER, deployment.contracts.upgradeTimelock), "securityToken: the timelock cannot upgrade");
+  expect(!(await token.hasRole(ROLE.UPGRADER, roles.upgrader)), "securityToken: the upgrader account can upgrade without the timelock");
+  const timelock = await connection.ethers.getContractAt("UpgradeTimelock", deployment.contracts.upgradeTimelock);
+  expect(await timelock.hasRole(await timelock.PROPOSER_ROLE(), roles.upgrader), "upgradeTimelock: proposer role missing");
+  expect(await timelock.hasRole(await timelock.EXECUTOR_ROLE(), roles.upgrader), "upgradeTimelock: executor role missing");
+  expect(!(await timelock.hasRole(ROLE.ADMIN, deployer)), "upgradeTimelock: deployer holds the admin role");
 
   expect(await registry.hasRole(ROLE.REGISTRAR, roles.registrar), "identityRegistry: registrar role missing");
   expect(await registry.isTrustedIssuer(roles.kycIssuer), "identityRegistry: KYC issuer not trusted");

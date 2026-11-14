@@ -2,7 +2,8 @@
   "token": {
     "name": "Example Fund Unit",
     "symbol": "EFU",
-    "adminTransferDelay": 0
+    "adminTransferDelay": 0,
+    "upgradeDelay": 0
   },
   "roles": {
     "admin": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
@@ -21,7 +22,7 @@
       "1": "10000",
       "2": "100000"
     },
-    "maxHolders": "100",
+    "maxHolders": "100000",
     "allowedCountries": [
       410
     ]

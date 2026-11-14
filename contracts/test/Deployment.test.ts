@@ -10,7 +10,7 @@ describe("deployment", function () {
     const [deployer, admin, issuer, enforcer, pauser, registrar, upgrader, settlement, kycIssuer, treasury] =
       await ethers.getSigners();
     const config: DeployConfig = {
-      token: { name: "Example Fund Unit", symbol: "EFU", adminTransferDelay: 3600 },
+      token: { name: "Example Fund Unit", symbol: "EFU", adminTransferDelay: 3600, upgradeDelay: 2 * 24 * 60 * 60 },
       roles: {
         admin: admin.address,
         issuer: issuer.address,
@@ -67,6 +67,79 @@ describe("deployment", function () {
     expect(await dvp.isCashAllowed(c.cash)).to.equal(true);
     expect(c.securityTokenImplementation).to.not.equal(c.securityToken);
     expect(deployment.startBlock).to.be.greaterThan(0);
+  });
+
+  describe("upgrades", function () {
+    const SALT = ethers.ZeroHash;
+
+    async function upgradeFixture() {
+      const base = await fixture();
+      await acceptHandover(connection, base.deployment, base.admin, base.config.token.adminTransferDelay);
+      const upgrader = await ethers.getSigner(base.config.roles.upgrader);
+      const { token, timelock } = await attach(connection, base.deployment, upgrader);
+      const implementation = await ethers.deployContract("SecurityTokenV2");
+      // The call the timelock will make: upgrade the proxy and run the new version's initializer.
+      const data = token.interface.encodeFunctionData("upgradeToAndCall", [
+        await implementation.getAddress(),
+        implementation.interface.encodeFunctionData("initializeV2"),
+      ]);
+      const target = await token.getAddress();
+      return { ...base, upgrader, token, timelock, target, data };
+    }
+
+    it("cannot be done by the upgrader account directly", async function () {
+      const { token, upgrader } = await networkHelpers.loadFixture(upgradeFixture);
+      const implementation = await ethers.deployContract("SecurityTokenV2");
+      await expect(token.connect(upgrader).upgradeToAndCall(await implementation.getAddress(), "0x"))
+        .to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(upgrader.address, ROLE.UPGRADER);
+    });
+
+    it("must wait for the delay after being scheduled", async function () {
+      const { config, timelock, target, data } = await networkHelpers.loadFixture(upgradeFixture);
+      const delay = config.token.upgradeDelay;
+      await expect(timelock.schedule(target, 0, data, SALT, SALT, delay - 1)).to.be.revertedWithCustomError(
+        timelock,
+        "TimelockInsufficientDelay",
+      );
+
+      await timelock.schedule(target, 0, data, SALT, SALT, delay);
+      await expect(timelock.execute(target, 0, data, SALT, SALT)).to.be.revertedWithCustomError(
+        timelock,
+        "TimelockUnexpectedOperationState",
+      );
+    });
+
+    it("takes effect once the delay has passed and keeps the token's state", async function () {
+      const { deployment, config, timelock, target, data } = await networkHelpers.loadFixture(upgradeFixture);
+      await timelock.schedule(target, 0, data, SALT, SALT, config.token.upgradeDelay);
+      await networkHelpers.time.increase(config.token.upgradeDelay);
+      await timelock.execute(target, 0, data, SALT, SALT);
+
+      const upgraded = await ethers.getContractAt("SecurityTokenV2", target);
+      expect(await upgraded.version()).to.equal("2");
+      expect(await upgraded.identityRegistry()).to.equal(deployment.contracts.identityRegistry);
+      expect(await upgraded.name()).to.equal("Example Fund Unit");
+    });
+
+    it("can be cancelled while it is waiting", async function () {
+      const { config, timelock, target, data } = await networkHelpers.loadFixture(upgradeFixture);
+      await timelock.schedule(target, 0, data, SALT, SALT, config.token.upgradeDelay);
+      const id = await timelock.hashOperation(target, 0, data, SALT, SALT);
+      await timelock.cancel(id);
+      await networkHelpers.time.increase(config.token.upgradeDelay);
+      await expect(timelock.execute(target, 0, data, SALT, SALT)).to.be.revertedWithCustomError(
+        timelock,
+        "TimelockUnexpectedOperationState",
+      );
+    });
+
+    it("can only be scheduled by the proposer", async function () {
+      const { config, admin, timelock, target, data } = await networkHelpers.loadFixture(upgradeFixture);
+      await expect(
+        timelock.connect(admin).schedule(target, 0, data, SALT, SALT, config.token.upgradeDelay),
+      ).to.be.revertedWithCustomError(timelock, "AccessControlUnauthorizedAccount");
+    });
   });
 
   it("uses an existing cash token when one is configured", async function () {

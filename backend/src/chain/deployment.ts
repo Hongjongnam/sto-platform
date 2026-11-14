@@ -27,6 +27,7 @@ const deploymentSchema = z.object({
     countryAllowModule: address,
     securityToken: address,
     securityTokenImplementation: address,
+    upgradeTimelock: address,
     cash: address,
     dvpSettlement: address,
     dividendDistributor: address,

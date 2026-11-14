@@ -95,9 +95,11 @@ An ERC-20 with zero decimals that follows the ERC-3643 model. Deployed behind a 
 | `ENFORCER_ROLE` | Freeze accounts and balances, `forcedTransfer`, `recoveryAddress` |
 | `PAUSER_ROLE` | `pause`, `unpause` |
 | `REGISTRAR_ROLE` | `setRegisteredSupply` |
-| `UPGRADER_ROLE` | Authorise implementation upgrades |
+| `UPGRADER_ROLE` | Authorise implementation upgrades. Held by `UpgradeTimelock`, not by a person |
 
 Every privileged function takes a `bytes32 reason` and emits an event with the operator and the reason.
+
+**Upgrades.** The upgrader role belongs to `UpgradeTimelock` (OpenZeppelin `TimelockController`). The upgrader account schedules an upgrade on chain and can execute it only after the configured delay, so a new implementation is visible to everyone before it takes effect and can be cancelled while it waits. The timelock administers itself.
 
 **Validation**
 
@@ -215,7 +217,7 @@ There is no ERC-20 `transfer`: every movement names its partition.
 | `DvPSettlement.test.ts` | Signed terms, allowed tokens, atomicity when either leg fails, retry, expiry, cancellation |
 | `CorporateActions.test.ts` | Dividend shares, eligibility, deadline and sweep; redemption, frozen units, funding, closing |
 | `PartitionToken.test.ts` | Every reason code, operators, lock-up and conversion, controller operations, documents, accounting consistency |
-| `Deployment.test.ts` | The deployment and handover library used by the scripts |
+| `Deployment.test.ts` | The deployment and handover library used by the scripts; upgrades through the timelock (delay, cancel, state preserved) |
 | `Invariants.test.ts` | 400 seeded random operations per seed (transfers, mints, burns, freezes, forced transfers, recovery, KYC revocation, pause), checking after every 20 steps that: balances sum to the total supply, total supply stays within the registered supply, frozen never exceeds balance, investor aggregates match wallet balances, the holder count is exact, and unverified wallets are never credited |
 
 ## Local network
@@ -280,7 +282,7 @@ Roles and parameters come from `scripts/config/local.json` (override with `DEPLO
 | 3 | Enforcer |
 | 4 | Pauser |
 | 5 | Registrar (identity registry and registered supply) |
-| 6 | Upgrader |
+| 6 | Upgrader: schedules and executes upgrades through the timelock |
 | 7 | Settlement operator |
 | 8 | KYC issuer |
 | 9 | Treasury (dividends and redemption) |
