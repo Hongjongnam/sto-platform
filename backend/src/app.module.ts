@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module.js';
 import { ChainModule } from './chain/chain.module.js';
 import { SettlementModule } from './settlement/settlement.module.js';
+import { CorporateActionsModule } from './corporate-actions/corporate-actions.module.js';
 import { type Env, validateEnv } from './config/env.js';
 import { dataSourceOptions } from './database/data-source.options.js';
 import { IdentityModule } from './identity/identity.module.js';
@@ -34,6 +35,7 @@ import { OutboxModule } from './outbox/outbox.module.js';
     OperationsModule,
     LedgerModule,
     SettlementModule,
+    CorporateActionsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
   controllers: [HealthController],

@@ -344,6 +344,16 @@ The operator is loaded on every request, so deactivating an account or changing 
 
 Operations that override a holder's control of their assets, or change the registered supply, follow a four-eyes rule: a second operator must approve, and the operator who filed a request can neither approve nor reject it. The rule is enforced in the service and by a database constraint. These operations also require the hash of a supporting document. Every operation carries a reason code that is recorded on chain, and a request shows its approval trail together with the status of its transaction, including the decoded error if it failed.
 
+**Ordering between signers.** Entries of one signer run in order, entries of different signers run independently. Two links tie them together where needed: `depends_on` (wait until these are confirmed, fail if one of them failed) and `runs_after` (wait until these have finished, whatever the outcome). A broadcast the node refuses for good, such as a signer that cannot pay for gas, fails the entry instead of being retried forever, and its nonce is released.
+
+**Settlement.** A trade reported by the venue becomes four outbox entries: the registration of the trade with both parties' EIP-712 signatures, each party's allowance for its own leg, and the settlement, which depends on the other three. A trade number is accepted once; reporting it again returns the existing trade. If settlement fails (the buyer cannot pay, the seller is frozen, a compliance rule rejects the delivery) neither leg moves, the trade shows the decoded reason, and it can be retried once the cause is fixed, or cancelled. Because an allowance is one number per party, a party's next trade waits for their previous settlement to finish.
+
+**Indexer and internal ledger.** The indexer reads the events of every contract into `chain_events` and projects the token's events onto an internal ledger (`holdings`, `token_state`). Events are unique on transaction hash and log index, only newly inserted events are applied, and the cursor advances in the same database transaction, so reading a block twice changes nothing. The projection is a pure function of the event stream. `chain_events` is also the audit trail: every privileged action with its operator and reason.
+
+**Reconciliation.** The chain is the book of record. Reconciliation first brings the indexer to the chain head, then reads every value from the chain at exactly the block the ledger reflects and compares: each wallet's balance, frozen amount and frozen flag, total and registered supply, pause state, the sum of balances, each investor's combined balance, and the holder count. Differences are stored as a report. The remedy for a difference is to rebuild the ledger by replaying the stored events; the chain is never adjusted.
+
+**Dividends and redemptions.** The treasury key funds and opens them, investor keys claim, and the amounts paid are read back from the indexed events. On the test network the treasury's cash comes from the test token's open mint.
+
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | Liveness and database connectivity |
@@ -355,6 +365,19 @@ Operations that override a holder's control of their assets, or change the regis
 | `GET /operations`, `GET /operations/:id` | Operation requests with approval trail and execution status |
 | `POST /operations` | File an operation |
 | `POST /operations/:id/approve`, `POST /operations/:id/reject` | Decide on a request |
+| `GET /trades`, `GET /trades/:id` | Trades with settlement status |
+| `POST /trades` | Report a trade from the venue |
+| `POST /otc/trades` | Mock venue: generates the trade number |
+| `POST /trades/:id/retry`, `POST /trades/:id/cancel` | Retry or cancel a trade that has not settled |
+| `POST /wallets/:address/cash` | Test faucet for the cash token |
+| `GET /ledger/state`, `GET /ledger/holdings` | Internal ledger and indexer progress |
+| `GET /events` | Indexed chain events, filterable by name, contract and address |
+| `GET /recon/reports`, `POST /recon/run` | Reconciliation reports; run one now |
+| `POST /recon/rebuild` | Rebuild the ledger from stored events (approver) |
+| `GET /dividends`, `POST /dividends` | Dividends; open one on balances at the current block |
+| `POST /dividends/:id/claims`, `POST /dividends/:id/sweep` | Claim a share; sweep after the deadline |
+| `GET /redemptions`, `POST /redemptions` | Redemption rounds; open one |
+| `POST /redemptions/:id/redeem`, `POST /redemptions/:id/close` | Redeem units; close after the deadline |
 
 ## End-to-end scenario
 
