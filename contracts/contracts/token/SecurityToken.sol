@@ -337,18 +337,22 @@ contract SecurityToken is
     function _afterMove(address from, address to, uint256 value) private {
         TokenStorage storage $ = _getStorage();
         uint48 key = SafeCast.toUint48(block.number);
-        bytes32 sender;
-        bytes32 receiver;
+        bytes32 sender = bytes32(0);
+        bytes32 receiver = bytes32(0);
 
+        // The previous and new values returned by `push` are not needed.
         if (from != address(0)) {
+            // slither-disable-next-line unused-return
             $.balanceCheckpoints[from].push(key, SafeCast.toUint208(balanceOf(from)));
             sender = $.identityRegistry.investorOf(from);
         }
         if (to != address(0)) {
+            // slither-disable-next-line unused-return
             $.balanceCheckpoints[to].push(key, SafeCast.toUint208(balanceOf(to)));
             receiver = $.identityRegistry.investorOf(to);
         }
         if (from == address(0) || to == address(0)) {
+            // slither-disable-next-line unused-return
             $.supplyCheckpoints.push(key, SafeCast.toUint208(totalSupply()));
         }
 
