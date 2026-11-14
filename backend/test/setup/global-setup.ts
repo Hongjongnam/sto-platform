@@ -1,5 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { HDNodeWallet, Mnemonic } from 'ethers';
 import pg from 'pg';
 
 const CONTRACTS_DIR = join(import.meta.dirname, '..', '..', '..', 'contracts');
@@ -7,7 +8,20 @@ const RPC_URL = 'http://127.0.0.1:8546';
 const ADMIN_DATABASE_URL = 'postgres://sto:sto@127.0.0.1:54320/postgres';
 const TEST_DATABASE = 'sto_test';
 
+const MNEMONIC = 'test test test test test test test test test test test junk';
+
 let node: ChildProcess | undefined;
+
+async function rpc(method: string, params: unknown[]): Promise<unknown> {
+  const response = await fetch(RPC_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  const body = (await response.json()) as { result?: unknown; error?: { message: string } };
+  if (body.error) throw new Error(`${method}: ${body.error.message}`);
+  return body.result;
+}
 
 async function rpcReady(): Promise<boolean> {
   try {
@@ -37,6 +51,14 @@ export async function setup(): Promise<void> {
   }
   for (const script of ['scripts/deploy.ts', 'scripts/accept-handover.ts']) {
     execFileSync('npx', ['hardhat', 'run', script, '--network', 'local'], { cwd: CONTRACTS_DIR, stdio: 'ignore' });
+  }
+
+  // Unlike the permissioned network, the local test chain charges for gas. Custodial investor
+  // wallets send their own transactions, so give the indexes they are derived from a balance.
+  const mnemonic = Mnemonic.fromPhrase(MNEMONIC);
+  for (let index = 10; index < 250; index++) {
+    const address = HDNodeWallet.fromMnemonic(mnemonic, `m/44'/60'/0'/0/${index}`).address;
+    await rpc('hardhat_setBalance', [address, '0x56bc75e2d63100000']);
   }
 
   const client = new pg.Client({ connectionString: ADMIN_DATABASE_URL });

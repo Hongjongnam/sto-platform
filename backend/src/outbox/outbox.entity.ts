@@ -40,6 +40,22 @@ export class OutboxEntry {
   @Column({ type: 'jsonb' })
   args: unknown[];
 
+  /**
+   * Entries that must be confirmed before this one is sent. Entries of different signers
+   * are otherwise sent independently, so a call that relies on another signer's
+   * transaction (a settlement on the parties' approvals) names it here.
+   */
+  @Column({ type: 'uuid', array: true, name: 'depends_on', default: () => "'{}'" })
+  dependsOn: string[];
+
+  /**
+   * Entries that must have finished, successfully or not, before this one is sent. Used to
+   * keep two flows that touch the same on-chain state (for example one party's allowance)
+   * from interleaving.
+   */
+  @Column({ type: 'uuid', array: true, name: 'runs_after', default: () => "'{}'" })
+  runsAfter: string[];
+
   @Column({ type: 'text', default: OutboxStatus.Pending })
   status: OutboxStatus;
 

@@ -6,6 +6,16 @@ import { ChainService } from '../chain/chain.service.js';
 import { OutboxEntry, OutboxStatus } from './outbox.entity.js';
 
 const OPEN = [OutboxStatus.Pending, OutboxStatus.Submitted];
+
+/** The node refused the transaction for a reason that retrying will not change. */
+class PermanentBroadcastError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 const POLL_INTERVAL_MS = 500;
 const GAS_HEADROOM_PERCENT = 130n;
 
@@ -72,6 +82,10 @@ export class OutboxWorker implements OnApplicationBootstrap, OnApplicationShutdo
       if (entry.status === OutboxStatus.Pending) await this.submit(entry);
       else await this.confirm(entry);
     } catch (error) {
+      if (error instanceof PermanentBroadcastError) {
+        await this.fail(entry, error.code, error.message);
+        return;
+      }
       // Infrastructure failure (node or database unreachable): leave the entry as it is and retry.
       await this.entries.update(entry.id, { attempts: entry.attempts + 1 });
       this.logger.warn(`entry ${entry.id} will be retried: ${(error as Error).message}`);
@@ -79,6 +93,23 @@ export class OutboxWorker implements OnApplicationBootstrap, OnApplicationShutdo
   }
 
   private async submit(entry: OutboxEntry): Promise<void> {
+    if (entry.dependsOn.length > 0) {
+      const dependencies = await this.entries.findBy({ id: In(entry.dependsOn) });
+      const failed = dependencies.find((dependency) => dependency.status === OutboxStatus.Failed);
+      if (failed) {
+        await this.fail(entry, 'DEPENDENCY_FAILED', `${failed.contract}.${failed.method}: ${failed.errorCode}`);
+        return;
+      }
+      // Wait until every dependency is confirmed.
+      if (dependencies.length < entry.dependsOn.length) return;
+      if (dependencies.some((dependency) => dependency.status !== OutboxStatus.Confirmed)) return;
+    }
+
+    if (entry.runsAfter.length > 0) {
+      const stillOpen = await this.entries.countBy({ id: In(entry.runsAfter), status: In(OPEN) });
+      if (stillOpen > 0) return;
+    }
+
     const signer = this.chain.signerFor(entry.signer);
     const contract = this.chain.contract(entry.contract, signer);
     const method = contract.getFunction(entry.method);
@@ -127,8 +158,9 @@ export class OutboxWorker implements OnApplicationBootstrap, OnApplicationShutdo
       .createQueryBuilder('entry')
       .select('MAX(entry.nonce)', 'max')
       .where('entry.signer = :signer', { signer })
-      .andWhere('entry.tx_hash IS NOT NULL')
-      .andWhere("entry.error_code IS DISTINCT FROM 'NONCE_CONSUMED'")
+      // Only nonces that are in flight or were actually used on chain count. An entry that
+      // failed without being mined leaves its nonce free; counting it would open a gap.
+      .andWhere("(entry.status IN ('SUBMITTED', 'CONFIRMED') OR (entry.status = 'FAILED' AND entry.block_number IS NOT NULL))")
       .getRawOne<{ max: string | null }>();
     const fromOutbox = row?.max == null ? 0 : Number(row.max) + 1;
     return Math.max(fromNode, fromOutbox);
@@ -167,6 +199,9 @@ export class OutboxWorker implements OnApplicationBootstrap, OnApplicationShutdo
       const message = (error as Error).message.toLowerCase();
       // The node already has it; the confirm step will pick it up.
       if (message.includes('already known') || message.includes('known transaction')) return;
+      if (message.includes('insufficient funds') || message.includes("doesn't have enough funds")) {
+        throw new PermanentBroadcastError('INSUFFICIENT_FUNDS', 'the signer cannot pay for gas');
+      }
       throw error;
     }
   }

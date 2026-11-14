@@ -13,6 +13,10 @@ export interface EnqueueInput {
   method: string;
   /** Call arguments. Use decimal strings for integers so they survive JSON. */
   args: unknown[];
+  /** Ids of entries that must be confirmed first. */
+  dependsOn?: string[];
+  /** Ids of entries that must have finished first, whatever their outcome. */
+  runsAfter?: string[];
 }
 
 @Injectable()
@@ -36,6 +40,8 @@ export class OutboxService {
         method: input.method,
         // jsonb column: TypeORM's partial type cannot express arbitrary JSON values.
         args: () => ':args::jsonb',
+        dependsOn: input.dependsOn ?? [],
+        runsAfter: input.runsAfter ?? [],
       })
       .setParameter('args', JSON.stringify(input.args))
       .orIgnore()
