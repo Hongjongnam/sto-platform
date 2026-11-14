@@ -31,3 +31,6 @@ infra/besu/.generated/
 # backend
 backend/.env
 *.tsbuildinfo
+
+# demo
+infra/demo/.env

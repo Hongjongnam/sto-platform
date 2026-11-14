@@ -1,0 +1,44 @@
+# The whole system on one machine: four Besu validators, PostgreSQL, the backend and the
+# frontend. Use ./up.sh, which also deploys the contracts before the backend starts.
+name: sto-demo
+
+include:
+  - ../besu/docker-compose.yml
+  - ../postgres/docker-compose.yml
+
+services:
+  backend:
+    build: ../../backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4780
+      DATABASE_URL: postgres://sto:sto@postgres:5432/sto
+      RPC_URL: http://node1:8545
+      DEPLOYMENT_FILE: /deployment/besu.json
+      CHAIN_MNEMONIC: ${CHAIN_MNEMONIC:-test test test test test test test test test test test junk}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in infra/demo/.env}
+      DEMO_MODE: "on"
+      # One hop: the frontend's API proxy.
+      TRUST_PROXY: 1
+    volumes:
+      - ../../contracts/deployments:/deployment:ro
+    ports:
+      # Bound to localhost; a tunnel exposes it when the frontend is hosted elsewhere.
+      - "127.0.0.1:4780:4780"
+    networks:
+      - besu
+      - default
+
+  frontend:
+    build:
+      context: ../../frontend
+      args:
+        BACKEND_URL: http://backend:4780
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:4790:4790"

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { encodeBytes32String, id as keccakId } from 'ethers';
 import { DataSource, type EntityManager, In, Repository } from 'typeorm';
@@ -131,6 +131,9 @@ export class IdentityService {
       'SELECT COALESCE(MAX(key_index) + 1, $1)::int AS next FROM wallets',
       [KeyStore.FIRST_INVESTOR_INDEX],
     );
+    if (next > KeyStore.LAST_INVESTOR_INDEX) {
+      throw new ServiceUnavailableException('No more wallets can be created on this network until it is reset');
+    }
     const address = this.chain.keys.derive(next).address;
     const wallet = manager.create(Wallet, { address, investorUuid: investor.id, keyIndex: next });
     await this.requestRegistration(manager, investor, wallet);

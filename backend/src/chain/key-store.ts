@@ -10,6 +10,12 @@ import { HDNodeWallet, Mnemonic } from 'ethers';
  */
 export class KeyStore {
   static readonly FIRST_INVESTOR_INDEX = 10;
+  /**
+   * Highest index handed out. The permissioned network only accepts transactions from an
+   * allowlist of accounts (infra/besu/permissions_config.toml), which covers indexes up to
+   * this one.
+   */
+  static readonly LAST_INVESTOR_INDEX = 1019;
 
   private readonly mnemonic: Mnemonic;
   private readonly byAddress = new Map<string, HDNodeWallet>();

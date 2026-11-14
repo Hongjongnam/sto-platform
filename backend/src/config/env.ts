@@ -8,6 +8,11 @@ const envSchema = z.object({
   CHAIN_MNEMONIC: z.string().min(1),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_TTL: z.string().default('8h'),
+  /**
+   * Number of reverse proxies in front of the app. Needed so rate limits apply to the real
+   * client address instead of the proxy's.
+   */
+  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
   /** Enables the public demo endpoints under /demo. Never turn this on for a real deployment. */
   DEMO_MODE: z.enum(['on', 'off']).default('off'),
 });
