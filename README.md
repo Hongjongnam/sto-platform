@@ -174,6 +174,34 @@ Redeems units for cash at a fixed price per unit. The units are burned and the h
 - Only verified holders can redeem, and only free units of an account that is not frozen. The token itself refuses to burn frozen units, so redemption cannot be used to get around a freeze.
 - After the deadline the issuer takes back the unpaid deposit.
 
+### PartitionToken
+
+A second token following the ERC-1400 family. Where `SecurityToken` centres on *who* may hold units, this one centres on *what kind* of holding a balance is. It uses the same identity registry.
+
+| Standard | Implemented |
+|---|---|
+| ERC-1410 | Balances and supply per partition, `partitionsOf`, `transferByPartition`, operators |
+| ERC-1594 | `issueByPartition`, `redeemByPartition`, `isIssuable`, pre-transfer validation |
+| ERC-1644 | `controllerTransferByPartition`, `controllerRedeemByPartition`, `isControllable` |
+| ERC-1643 | `setDocument`, `getDocument`, `removeDocument`, `getAllDocuments` |
+| ERC-1066 | Reason codes returned by `canTransferByPartition` |
+
+`canTransferByPartition` returns a status code and a reason without reverting, so a caller can explain a rejection before sending a transaction:
+
+| Code | Meaning | Reason |
+|---|---|---|
+| `0x51` | Transfer would succeed | |
+| `0x52` | Insufficient balance in the partition | `INSUFFICIENT_BALANCE` |
+| `0x54` | Transfers halted | `PAUSED` |
+| `0x55` | Funds locked | `PARTITION_LOCKED` |
+| `0x56` | Invalid sender | `SENDER_FROZEN`, `SENDER_NOT_VERIFIED` |
+| `0x57` | Invalid receiver | `RECEIVER_NOT_VERIFIED`, `RECEIVER_FROZEN` |
+| `0x58` | Invalid operator | `OPERATOR_NOT_AUTHORIZED` |
+
+**Lock-up.** The issuer can lock a partition until a given time. Locked units cannot be transferred, redeemed or converted. The issuer configures which partition a locked one converts into (for example `LOCKUP` to `GENERAL`); once the lock-up ends, holders convert their own units. Controllers can still force a transfer or redemption at any time.
+
+There is no ERC-20 `transfer`: every movement names its partition.
+
 ### Tests
 
 | Suite | What it covers |
@@ -183,6 +211,7 @@ Redeems units for cash at a fixed price per unit. The units are burned and the h
 | `SecurityToken.test.ts` | Every row of the behaviour table, roles, snapshots, upgrade with state preserved |
 | `DvPSettlement.test.ts` | Signed terms, allowed tokens, atomicity when either leg fails, retry, expiry, cancellation |
 | `CorporateActions.test.ts` | Dividend shares, eligibility, deadline and sweep; redemption, frozen units, funding, closing |
+| `PartitionToken.test.ts` | Every reason code, operators, lock-up and conversion, controller operations, documents, accounting consistency |
 | `Deployment.test.ts` | The deployment and handover library used by the scripts |
 | `Invariants.test.ts` | 400 seeded random operations per seed (transfers, mints, burns, freezes, forced transfers, recovery, KYC revocation, pause), checking after every 20 steps that: balances sum to the total supply, total supply stays within the registered supply, frozen never exceeds balance, investor aggregates match wallet balances, the holder count is exact, and unverified wallets are never credited |
 
