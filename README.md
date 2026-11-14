@@ -28,6 +28,13 @@ npm run size         # deployed bytecode size against the 24,576-byte limit
 npm run typecheck    # compile, then type-check tests and scripts
 ```
 
+Static analysis uses [Slither](https://github.com/crytic/slither):
+
+```bash
+pip install slither-analyzer
+slither . --fail-medium
+```
+
 Toolchain: Hardhat 3, Solidity 0.8.34 (EVM target `cancun`), OpenZeppelin Contracts 5.6, ethers v6, Mocha.
 
 ## Local network
