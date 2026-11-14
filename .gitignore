@@ -20,9 +20,8 @@ dist/
 # keys / network data
 *.pem
 *.key
-infra/besu/data/
-infra/besu/keys/
-infra/besu/genesis.json
+infra/besu/network/
+infra/besu/.generated/
 
 # os / editor
 .DS_Store
