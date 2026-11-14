@@ -8,7 +8,7 @@ Security token contracts (ERC-3643 / ERC-1400) with DvP settlement on a permissi
 
 ```
 contracts/        Hardhat project: Solidity sources, tests, scripts
-backend/          NestJS API (work in progress)
+backend/          NestJS API
 infra/besu/       Local 4-validator QBFT network (Docker Compose)
 infra/postgres/   PostgreSQL for the backend (Docker Compose)
 ```
@@ -318,10 +318,43 @@ cd infra/postgres && docker compose up -d
 cd backend && npm run test:e2e
 ```
 
+**Operators and roles.** Operators sign in with a username and password (scrypt hashes) and receive a bearer token. They never hold chain keys; they act by filing requests.
+
+| Role | Can do |
+|---|---|
+| `VIEWER` | Read everything |
+| `REQUESTER` | Onboard investors, file token operations |
+| `APPROVER` | Approve or reject operations filed by someone else |
+
+The operator is loaded on every request, so deactivating an account or changing its roles takes effect immediately rather than when the token expires. Login attempts are rate-limited.
+
+**Keys.** The backend is custodial: it holds the keys of the operational roles (issuer, enforcer, pauser, registrar, settlement, treasury), of the KYC issuer and of investor wallets, all derived from one mnemonic. This is a development key store; production would put an HSM or a signing service behind the same interface.
+
+**Investors.** Onboarding an investor creates a wallet, has the KYC issuer key sign an EIP-712 claim, and submits it to the identity registry. Personal data stays in the database; the chain only sees an opaque `investorId`. An investor can have several wallets, and a wallet's KYC can be revoked and renewed.
+
+**Token operations.** Operations are filed as requests and reach the chain through the outbox.
+
+| Operation | Signed by | Needs approval |
+|---|---|---|
+| `MINT`, `BURN` | Issuer | No |
+| `PAUSE`, `UNPAUSE` | Pauser | No |
+| `FREEZE_ADDRESS`, `UNFREEZE_ADDRESS`, `FREEZE_PARTIAL`, `UNFREEZE_PARTIAL` | Enforcer | Yes |
+| `FORCED_TRANSFER`, `RECOVERY` | Enforcer | Yes |
+| `SET_REGISTERED_SUPPLY` | Registrar | Yes |
+
+Operations that override a holder's control of their assets, or change the registered supply, follow a four-eyes rule: a second operator must approve, and the operator who filed a request can neither approve nor reject it. The rule is enforced in the service and by a database constraint. These operations also require the hash of a supporting document. Every operation carries a reason code that is recorded on chain, and a request shows its approval trail together with the status of its transaction, including the decoded error if it failed.
+
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | Liveness and database connectivity |
 | `GET /docs` | OpenAPI documentation |
+| `POST /auth/login`, `GET /auth/me` | Sign in; current operator |
+| `GET /investors`, `GET /investors/:id` | Investors with wallets and KYC status |
+| `POST /investors`, `POST /investors/:id/wallets` | Onboard an investor; add a wallet |
+| `POST /wallets/:address/renew`, `POST /wallets/:address/revoke` | Renew or revoke a wallet's KYC |
+| `GET /operations`, `GET /operations/:id` | Operation requests with approval trail and execution status |
+| `POST /operations` | File an operation |
+| `POST /operations/:id/approve`, `POST /operations/:id/reject` | Decide on a request |
 
 ## End-to-end scenario
 
