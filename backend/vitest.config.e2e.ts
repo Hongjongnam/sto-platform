@@ -22,6 +22,7 @@ export default defineConfig({
       JWT_SECRET: 'integration-test-secret-integration-test-secret',
       // Tests drive the worker explicitly.
       OUTBOX_WORKER: 'off',
+      INDEXER_WORKER: 'off',
     },
   },
 });

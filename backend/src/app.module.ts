@@ -9,6 +9,7 @@ import { type Env, validateEnv } from './config/env.js';
 import { dataSourceOptions } from './database/data-source.options.js';
 import { IdentityModule } from './identity/identity.module.js';
 import { HealthController } from './health/health.controller.js';
+import { LedgerModule } from './ledger/ledger.module.js';
 import { OperationsModule } from './operations/operations.module.js';
 import { OutboxModule } from './outbox/outbox.module.js';
 
@@ -30,6 +31,7 @@ import { OutboxModule } from './outbox/outbox.module.js';
     OutboxModule,
     IdentityModule,
     OperationsModule,
+    LedgerModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
   controllers: [HealthController],
