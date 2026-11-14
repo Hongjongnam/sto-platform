@@ -9,6 +9,7 @@ Security token contracts (ERC-3643 / ERC-1400) with DvP settlement on a permissi
 ```
 contracts/        Hardhat project: Solidity sources, tests, scripts
 backend/          NestJS API
+frontend/         Next.js operator console and guided demo
 infra/besu/       Local 4-validator QBFT network (Docker Compose)
 infra/postgres/   PostgreSQL for the backend (Docker Compose)
 ```
@@ -378,6 +379,33 @@ Operations that override a holder's control of their assets, or change the regis
 | `POST /dividends/:id/claims`, `POST /dividends/:id/sweep` | Claim a share; sweep after the deadline |
 | `GET /redemptions`, `POST /redemptions` | Redemption rounds; open one |
 | `POST /redemptions/:id/redeem`, `POST /redemptions/:id/close` | Redeem units; close after the deadline |
+
+## Frontend
+
+Next.js 16 (App Router), React 19, TanStack Query and Tailwind CSS 4. The UI is in Korean. The browser only talks to the Next.js app; `/api/*` is proxied to the backend (`BACKEND_URL`, default `http://127.0.0.1:4780`), and there is no wallet connection: operators act through the backend, which signs.
+
+```bash
+cd frontend
+npm ci
+npm run build && npm start      # http://localhost:4790
+```
+
+The backend must run with `DEMO_MODE=on`: the console is entered through a one-click demo session that signs the visitor in as two operators at once, a requester and an approver. A switch in the header changes perspective between requester, approver and investor, so one person can walk through flows that need two.
+
+| Screen | What it shows |
+|---|---|
+| Guided scenario | Nine steps that send real transactions: KYC, issuance, transfer, partial freeze, DvP, dividend, account freeze and forced transfer, wallet recovery, reconciliation. Each step includes attempts that must be rejected and explains the rejection in plain language |
+| Dashboard | Supply against registered supply, holders, indexer progress, last reconciliation, holdings, recent events |
+| Investors | Onboarding, wallets, KYC status, renew and revoke |
+| Issuance | Mint, burn, registered supply, with the reason a request was rejected |
+| Enforcement | Freeze, forced transfer, recovery and pause requests, and the approval queue |
+| Trades | Mock venue, settlement status, retry and cancel, test cash faucet |
+| Corporate actions | Dividends and redemptions with claims and amounts paid |
+| Audit log | Every indexed chain event with operator and reason, filterable |
+| Reconciliation | Run a comparison, corrupt the ledger on purpose, see it detected, rebuild |
+| Investor account | Balances, free and frozen units, transfers with the same on-chain checks |
+
+Tables collapse into cards on narrow screens.
 
 ## End-to-end scenario
 

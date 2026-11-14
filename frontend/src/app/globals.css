@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy: #1a2553;
+  --color-navy-deep: #111a3d;
+  --color-accent: #d6006e;
+  --color-accent-soft: #fbe6f1;
+  --color-canvas: #f1f3f7;
+  --color-panel: #ffffff;
+  --color-line: #d5d9e2;
+  --color-head: #e8ebf2;
+  --color-ink: #1c2333;
+  --color-mute: #6a7386;
+  /* Status colours. Price-movement colours (red up, blue down) are not used: this console
+     shows states, and a red "normal" badge would read as an error. */
+  --color-ok: #0b8a5a;
+  --color-no: #d12a2a;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html {
+  font-size: 13px;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
