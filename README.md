@@ -264,7 +264,7 @@ export BESU_RPC_URL=http://127.0.0.1:8545
 export BESU_MNEMONIC="test test test test test test test test test test test junk"
 ```
 
-The mnemonic above is the public development mnemonic; its first twenty accounts are the ones in `permissions_config.toml`.
+The mnemonic above is the public development mnemonic; `permissions_config.toml` lists accounts derived from it.
 
 ### Smoke test
 
