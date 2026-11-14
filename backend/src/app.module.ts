@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ChainModule } from './chain/chain.module.js';
 import { type Env, validateEnv } from './config/env.js';
 import { dataSourceOptions } from './database/data-source.options.js';
 import { HealthController } from './health/health.controller.js';
+import { OutboxModule } from './outbox/outbox.module.js';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { HealthController } from './health/health.controller.js';
         migrationsRun: true,
       }),
     }),
+    ChainModule,
+    OutboxModule,
   ],
   controllers: [HealthController],
 })

@@ -303,6 +303,21 @@ npm ci
 npm run build && node --env-file=.env dist/main.js
 ```
 
+**Sending transactions.** Every on-chain write goes through an outbox table instead of being sent from a request handler:
+
+1. The request handler records the intended call in `tx_outbox` in the same database transaction as its own data, under an idempotency key. If the business transaction rolls back, nothing is sent; if the same key is recorded twice, the first entry is returned.
+2. A worker takes the oldest open entry of each signer, one at a time, so nonces never collide. The next nonce is the higher of the node's pending count and one past the highest nonce the outbox has already signed for that signer.
+3. The call is simulated first. A call that would revert is marked `FAILED` with the decoded custom error and is never sent.
+4. The transaction is signed, its hash and raw bytes are stored (`SUBMITTED`), and only then is it broadcast. After a crash the worker looks the stored hash up and, if the node does not know it, re-broadcasts the very same bytes. A transaction is therefore never signed twice.
+5. The receipt moves the entry to `CONFIRMED` or `FAILED`. A failed entry does not block the entries behind it.
+
+**Tests.** Integration tests run against a real PostgreSQL and a local in-memory chain that the test setup starts and deploys the contracts to:
+
+```bash
+cd infra/postgres && docker compose up -d
+cd backend && npm run test:e2e
+```
+
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | Liveness and database connectivity |

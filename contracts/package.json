@@ -6,7 +6,8 @@
     "test": "hardhat test",
     "coverage": "hardhat test --coverage",
     "typecheck": "hardhat build && tsc --noEmit",
-    "size": "hardhat build && node scripts/check-size.ts"
+    "size": "hardhat build && node scripts/check-size.ts",
+    "export-abi": "hardhat build && node scripts/export-abi.ts"
   },
   "type": "module",
   "devDependencies": {

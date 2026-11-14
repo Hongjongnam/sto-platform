@@ -19,6 +19,13 @@ export default defineConfig({
     },
   },
   networks: {
+    // `npx hardhat node --port 8546`; used by the backend's integration tests.
+    local: {
+      type: "http",
+      chainType: "l1",
+      url: "http://127.0.0.1:8546",
+      accounts: { mnemonic: "test test test test test test test test test test test junk", count: 20 },
+    },
     besu: {
       type: "http",
       chainType: "l1",
