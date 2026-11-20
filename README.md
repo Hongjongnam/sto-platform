@@ -1,88 +1,79 @@
 # sto-platform
 
-Security token contracts (ERC-3643 / ERC-1400) with DvP settlement on a permissioned Hyperledger Besu network.
+Security token contracts built on ERC-3643 and the ERC-1400 family, with atomic delivery-versus-payment settlement, corporate actions and timelocked upgrades, running on a permissioned Hyperledger Besu network.
 
-> The contracts in this repository have not been audited. Do not use them in production.
+The repository works through how the rules of a regulated security — who may hold it, how much, when it may move, and who may override a holder — can be enforced by the token itself rather than by the application around it.
 
-A visitor enters the demo with one click and walks through nine steps that send real transactions, including the attempts the contracts must reject:
+> The contracts have not been audited. Do not use them in production.
 
-![Guided scenario](docs/screenshots/guide.png)
+## Contents
 
-## Quick start
+- [Overview](#overview)
+- [Contracts](#contracts)
+  - [IdentityRegistry](#identityregistry)
+  - [SecurityToken (ERC-3643)](#securitytoken-erc-3643)
+  - [ModularCompliance](#modularcompliance)
+  - [PartitionToken (ERC-1400)](#partitiontoken-erc-1400)
+  - [DvPSettlement](#dvpsettlement)
+  - [DividendDistributor](#dividenddistributor)
+  - [RedemptionManager](#redemptionmanager)
+  - [UpgradeTimelock](#upgradetimelock)
+- [Design notes](#design-notes)
+- [Building and testing](#building-and-testing)
+- [Deployment](#deployment)
+- [Local Besu network](#local-besu-network)
+- [Off-chain stack](#off-chain-stack)
 
-Everything on one machine: four Besu validators, PostgreSQL, the backend and the frontend. Requires Docker and Node.js (the contracts are deployed from the host).
+## Overview
 
-```bash
-./infra/demo/up.sh       # generate the chain, start it, deploy the contracts, start the apps
-open http://localhost:4790
-./infra/demo/reset.sh    # back to the initial state: fresh contracts, empty database
+```
+                    ┌──────────────────────┐
+                    │   IdentityRegistry   │  wallet -> investor, KYC status (EIP-712 claims)
+                    └──────────▲───────────┘
+                               │ isVerified / investorOf
+┌──────────────┐     ┌─────────┴──────────┐   canTransfer   ┌───────────────────┐
+│ ERC1967Proxy ├────►│   SecurityToken    ├────────────────►│ ModularCompliance │
+└──────────────┘     │  (UUPS, ERC-7201)  │                 └─────────┬─────────┘
+        ▲            └─────────▲──────────┘                           │ moduleCheck
+        │ upgrade              │ investorBalanceOf / holderCount      ▼
+┌───────┴────────┐             └───────────────────── MaxBalance · MaxHolders · CountryAllow
+│ UpgradeTimelock│
+└────────────────┘
+                     ┌────────────────────┐  ┌─────────────────────┐  ┌───────────────────┐
+  balanceOfAt ──────►│ DividendDistributor│  │  RedemptionManager  │  │   DvPSettlement   │
+                     └────────────────────┘  └─────────────────────┘  └───────────────────┘
+                       pull-based payout       burn + pay, one tx       token vs. cash, one tx
+
+                     ┌────────────────────┐
+                     │   PartitionToken   │  ERC-1410 / 1594 / 1644 / 1643, ERC-1066 codes
+                     └────────────────────┘  shares the same IdentityRegistry
 ```
 
-`up.sh` can be run again at any time; it keeps an existing chain and deployment. `reset.sh` deploys a fresh set of contracts on the running chain, empties the database and restarts the backend, so the demo can be returned to a known state on a schedule.
+| Path | Contract | Standard / pattern |
+|---|---|---|
+| `identity/IdentityRegistry.sol` | Wallet-to-investor mapping, KYC status | EIP-712 signed claims |
+| `token/SecurityToken.sol` | Permissioned fungible token | ERC-3643 model, UUPS, ERC-7201 storage, checkpoints |
+| `compliance/ModularCompliance.sol` | Rule engine for transfers | Pluggable stateless modules |
+| `compliance/modules/*.sol` | `MaxBalanceModule`, `MaxHoldersModule`, `CountryAllowModule` | |
+| `token/PartitionToken.sol` | Partitioned token | ERC-1410, 1594, 1644, 1643, 1066 |
+| `settlement/DvPSettlement.sol` | Atomic trade settlement | Dual EIP-712 consent |
+| `corporate-actions/DividendDistributor.sol` | Cash distribution at a record block | Pull payments |
+| `corporate-actions/RedemptionManager.sol` | Redemption for cash | Burn and pay atomically |
+| `governance/UpgradeTimelock.sol` | Holds the upgrader role | `TimelockController` |
+| `mocks/USDC.sol` | Test cash token (6 decimals, open mint) | |
+| `mocks/SecurityTokenV2.sol` | Upgrade target used by the tests | |
 
-## Repository layout
+Toolchain: Solidity 0.8.34 (EVM target `cancun`), Hardhat 3, OpenZeppelin Contracts 5.6, ethers v6, Mocha.
 
-```
-contracts/        Hardhat project: Solidity sources, tests, scripts
-backend/          NestJS API
-frontend/         Next.js operator console and guided demo
-docs/screenshots/ Screens used in this README
-infra/besu/       Local 4-validator QBFT network (Docker Compose)
-infra/postgres/   PostgreSQL for the backend (Docker Compose)
-infra/demo/       The whole system in one Compose project, with start and reset scripts
-infra/blockscout/ Optional block explorer for the local network
-```
-
-## Requirements
-
-- Node.js 22.13 or later
-- Docker with Compose v2
+Audited OpenZeppelin components are used wherever one exists — `ERC20Upgradeable`, `AccessControlDefaultAdminRulesUpgradeable`, `PausableUpgradeable`, `UUPSUpgradeable`, `Checkpoints`, `EIP712`, `ECDSA`, `Ownable2Step`, `TimelockController`. Only the securities-specific logic is written here.
 
 ## Contracts
 
-```bash
-cd contracts
-npm ci
-npm run build        # compile
-npm test             # run the test suite
-npm run coverage     # tests with a coverage report
-npm run size         # deployed bytecode size against the 24,576-byte limit
-npm run typecheck    # compile, then type-check tests and scripts
-```
-
-Static analysis uses [Slither](https://github.com/crytic/slither):
-
-```bash
-pip install slither-analyzer
-slither . --fail-medium
-```
-
-Toolchain: Hardhat 3, Solidity 0.8.34 (EVM target `cancun`), OpenZeppelin Contracts 5.6, ethers v6, Mocha.
-
-### Architecture
-
-```
-                 ┌──────────────────────┐
-                 │   IdentityRegistry   │  wallet -> investor, KYC status
-                 └──────────▲───────────┘
-                            │ isVerified / investorOf
-┌──────────────┐   ┌────────┴───────────┐   canTransfer   ┌───────────────────┐
-│ ERC1967Proxy ├──►│   SecurityToken    ├────────────────►│ ModularCompliance │
-└──────────────┘   │  (UUPS, ERC-7201)  │                 └─────────┬─────────┘
-                   └────────▲───────────┘                           │ moduleCheck
-                            │ investorBalanceOf / holderCount       ▼
-                            └──────────────────────────  MaxBalance · MaxHolders · CountryAllow
-```
-
-The token keeps the per-investor aggregates; rule modules are stateless and read them. Rules can therefore be added to, removed from or replaced on a live token without migrating any state.
-
-Audited OpenZeppelin components are used wherever one exists: `ERC20Upgradeable`, `AccessControlDefaultAdminRulesUpgradeable`, `PausableUpgradeable`, `UUPSUpgradeable`, `Checkpoints`, `EIP712`, `ECDSA`, `Ownable2Step`. Only the securities-specific logic is written here.
-
 ### IdentityRegistry
 
-Maps wallets to investors. A trusted KYC issuer signs an EIP-712 claim off-chain and a registrar submits it; no personal data is stored on-chain.
+Maps wallets to investors. A trusted KYC issuer signs a claim off-chain and a registrar submits it; no personal data is stored on-chain.
 
-```
+```solidity
 InvestorClaim(address wallet, bytes32 investorId, uint16 country, uint8 investorType, uint64 expiry, uint256 nonce)
 ```
 
@@ -99,9 +90,7 @@ InvestorClaim(address wallet, bytes32 investorId, uint16 country, uint8 investor
 
 Investor types: `0` retail, `1` qualified, `2` professional. Country is the ISO 3166-1 numeric code.
 
-Slither's `timestamp` detector is disabled in `slither.config.json`: identity expiry is time-based by design.
-
-### SecurityToken
+### SecurityToken (ERC-3643)
 
 An ERC-20 with zero decimals that follows the ERC-3643 model. Deployed behind a UUPS proxy; state lives in an ERC-7201 namespaced slot.
 
@@ -114,15 +103,11 @@ An ERC-20 with zero decimals that follows the ERC-3643 model. Deployed behind a 
 | `ENFORCER_ROLE` | Freeze accounts and balances, `forcedTransfer`, `recoveryAddress` |
 | `PAUSER_ROLE` | `pause`, `unpause` |
 | `REGISTRAR_ROLE` | `setRegisteredSupply` |
-| `UPGRADER_ROLE` | Authorise implementation upgrades. Held by `UpgradeTimelock`, not by a person |
+| `UPGRADER_ROLE` | Authorise implementation upgrades. Held by `UpgradeTimelock`, not by an account |
 
-Every privileged function takes a `bytes32 reason` and emits an event with the operator and the reason.
+Every privileged function takes a `bytes32 reason` and emits an event carrying the operator and the reason, so the chain itself is the audit trail.
 
-**Upgrades.** The upgrader role belongs to `UpgradeTimelock` (OpenZeppelin `TimelockController`). The upgrader account schedules an upgrade on chain and can execute it only after the configured delay, so a new implementation is visible to everyone before it takes effect and can be cancelled while it waits. The timelock administers itself.
-
-**Validation**
-
-Transfers, mints and burns all pass through one function, which checks in this order:
+**One validation path.** Transfers, mints and burns all go through a single `_update` override, which checks in this order:
 
 1. the token is not paused
 2. the receiver is verified
@@ -133,7 +118,7 @@ Transfers, mints and burns all pass through one function, which checks in this o
 7. compliance accepts the movement
 8. for a mint, the new total supply does not exceed the registered supply
 
-Only `forcedTransfer` and `recoveryAddress` bypass this path.
+Only `forcedTransfer` and `recoveryAddress` bypass this path, and each of them applies its own narrower checks.
 
 **Behaviour in specific situations**
 
@@ -147,27 +132,51 @@ Only `forcedTransfer` and `recoveryAddress` bypass this path.
 | Paused | Transfers, mints and burns stop. Freezing, forced transfer and recovery stay available |
 | Frozen account | Cannot send, receive or be burned from |
 
-**Investor aggregates**
+**Investor aggregates.** `investorBalanceOf(investorId)` is the combined balance of all wallets of one investor, and `holderCount()` is the number of investors with a non-zero balance. Both are updated on every movement, including forced transfers and recovery. Movements between wallets of the same investor and zero-value movements leave them unchanged. Holding limits are about people, not addresses; keeping the aggregate in the token means a limit cannot be avoided by spreading units across wallets.
 
-`investorBalanceOf(investorId)` is the combined balance of all wallets of an investor and `holderCount()` is the number of investors with a non-zero balance. Both are updated on every movement, including forced transfers and recovery. Movements between wallets of the same investor and zero-value movements leave them unchanged.
+**Registered supply.** `registeredSupply` mirrors the amount registered off-chain. Minting cannot take the total supply above it, and it cannot be set below the current total supply.
 
-**Registered supply**
-
-`registeredSupply` is the amount registered off-chain. Minting cannot take the total supply above it, and it cannot be set below the current total supply.
-
-**Snapshots**
-
-`balanceOfAt(account, blockNumber)` and `totalSupplyAt(blockNumber)` return values as of the end of a past block.
+**Snapshots.** `balanceOfAt(account, blockNumber)` and `totalSupplyAt(blockNumber)` return values as of the end of a past block, using OpenZeppelin `Checkpoints`. Corporate actions read them instead of live balances.
 
 ### ModularCompliance
 
-Holds up to ten rule modules. A movement is allowed only if every module accepts it. `firstFailingModule` tells off-chain callers which rule rejected a movement.
+Holds up to ten rule modules. A movement is allowed only if every module accepts it, and `firstFailingModule` tells an off-chain caller which rule rejected it.
 
 | Module | Rule |
 |---|---|
 | `MaxBalanceModule` | An investor's combined balance may not exceed the cap for their investor type. A type with no cap cannot receive |
 | `MaxHoldersModule` | The number of holding investors may not exceed the cap. Existing holders can always receive, and a holder can hand over their whole position |
 | `CountryAllowModule` | Only investors from allowed countries can receive |
+
+Modules are stateless: they read the token's investor aggregates and the identity registry. A rule can therefore be added, removed or replaced on a live token that already has holders, with no state to migrate or back-fill.
+
+### PartitionToken (ERC-1400)
+
+A second token following the ERC-1400 family. Where `SecurityToken` centres on *who* may hold units, this one centres on *what kind* of holding a balance is. It uses the same identity registry.
+
+| Standard | Implemented |
+|---|---|
+| ERC-1410 | Balances and supply per partition, `partitionsOf`, `transferByPartition`, operators |
+| ERC-1594 | `issueByPartition`, `redeemByPartition`, `isIssuable`, pre-transfer validation |
+| ERC-1644 | `controllerTransferByPartition`, `controllerRedeemByPartition`, `isControllable` |
+| ERC-1643 | `setDocument`, `getDocument`, `removeDocument`, `getAllDocuments` |
+| ERC-1066 | Reason codes returned by `canTransferByPartition` |
+
+`canTransferByPartition` returns a status code and a reason without reverting, so a caller can explain a rejection before sending a transaction:
+
+| Code | Meaning | Reason |
+|---|---|---|
+| `0x51` | Transfer would succeed | |
+| `0x52` | Insufficient balance in the partition | `INSUFFICIENT_BALANCE` |
+| `0x54` | Transfers halted | `PAUSED` |
+| `0x55` | Funds locked | `PARTITION_LOCKED` |
+| `0x56` | Invalid sender | `SENDER_FROZEN`, `SENDER_NOT_VERIFIED` |
+| `0x57` | Invalid receiver | `RECEIVER_NOT_VERIFIED`, `RECEIVER_FROZEN` |
+| `0x58` | Invalid operator | `OPERATOR_NOT_AUTHORIZED` |
+
+**Lock-up.** The issuer can lock a partition until a given time. Locked units cannot be transferred, redeemed or converted. The issuer configures which partition a locked one converts into (for example `LOCKUP` to `GENERAL`); once the lock-up ends, holders convert their own units. Controllers can still force a transfer or redemption at any time.
+
+There is no ERC-20 `transfer`: every movement names its partition.
 
 ### DvPSettlement
 
@@ -198,102 +207,81 @@ Redeems units for cash at a fixed price per unit. The units are burned and the h
 - Only verified holders can redeem, and only free units of an account that is not frozen. The token itself refuses to burn frozen units, so redemption cannot be used to get around a freeze.
 - After the deadline the issuer takes back the unpaid deposit.
 
-### PartitionToken
+### UpgradeTimelock
 
-A second token following the ERC-1400 family. Where `SecurityToken` centres on *who* may hold units, this one centres on *what kind* of holding a balance is. It uses the same identity registry.
+An OpenZeppelin `TimelockController` that holds `UPGRADER_ROLE` on the token. The upgrader account schedules an upgrade on-chain and can execute it only after the configured delay, so a new implementation is public before it takes effect and can be cancelled while it waits. The timelock administers itself.
 
-| Standard | Implemented |
-|---|---|
-| ERC-1410 | Balances and supply per partition, `partitionsOf`, `transferByPartition`, operators |
-| ERC-1594 | `issueByPartition`, `redeemByPartition`, `isIssuable`, pre-transfer validation |
-| ERC-1644 | `controllerTransferByPartition`, `controllerRedeemByPartition`, `isControllable` |
-| ERC-1643 | `setDocument`, `getDocument`, `removeDocument`, `getAllDocuments` |
-| ERC-1066 | Reason codes returned by `canTransferByPartition` |
+## Design notes
 
-`canTransferByPartition` returns a status code and a reason without reverting, so a caller can explain a rejection before sending a transaction:
+**Why two token models.** ERC-3643 answers "may this investor hold this?" with identity and pluggable rules on a plain ERC-20. ERC-1400 answers "what restrictions attach to this particular holding?" with partitions, documents and status codes. They solve different parts of the problem, so both are implemented side by side against the same identity registry rather than merged into one contract.
 
-| Code | Meaning | Reason |
-|---|---|---|
-| `0x51` | Transfer would succeed | |
-| `0x52` | Insufficient balance in the partition | `INSUFFICIENT_BALANCE` |
-| `0x54` | Transfers halted | `PAUSED` |
-| `0x55` | Funds locked | `PARTITION_LOCKED` |
-| `0x56` | Invalid sender | `SENDER_FROZEN`, `SENDER_NOT_VERIFIED` |
-| `0x57` | Invalid receiver | `RECEIVER_NOT_VERIFIED`, `RECEIVER_FROZEN` |
-| `0x58` | Invalid operator | `OPERATOR_NOT_AUTHORIZED` |
+**Where the standards are followed and where they are not.**
 
-**Lock-up.** The issuer can lock a partition until a given time. Locked units cannot be transferred, redeemed or converted. The issuer configures which partition a locked one converts into (for example `LOCKUP` to `GENERAL`); once the lock-up ends, holders convert their own units. Controllers can still force a transfer or redemption at any time.
+- `SecurityToken` follows the ERC-3643 *model* — identity registry, modular compliance, freezes, forced transfer, recovery — but uses a single EIP-712 signed claim instead of the full ONCHAINID claim-topic stack, and `AccessControl` roles instead of agent lists.
+- Investor-level aggregates and the registered-supply ceiling are additions, not part of ERC-3643.
+- `PartitionToken` implements the ERC-1400 family interfaces with ERC-1066 codes; it deliberately omits a default-partition ERC-20 `transfer`.
 
-There is no ERC-20 `transfer`: every movement names its partition.
+**Upgradeability.** Only `SecurityToken` is upgradeable (UUPS). State lives in an ERC-7201 namespaced slot so a new implementation cannot collide with inherited storage, and the upgrade right sits behind a timelock rather than with an account. The settlement and corporate-action contracts are immutable; a new version is a new deployment.
 
-### Tests
+**Pull over push.** Dividends and redemptions let each holder take their own payment. A loop over holders would make gas cost grow with the holder count and let one failing recipient block everyone.
+
+**Consent over allowance.** DvP requires both parties' signatures over the exact trade terms. An ERC-20 allowance proves that a party allowed a contract to move funds, not that they agreed to a particular price.
+
+## Building and testing
+
+Requires Node.js 22.13 or later.
+
+```bash
+cd contracts
+npm ci
+npm run build        # compile
+npm test             # run the test suite
+npm run coverage     # tests with a coverage report
+npm run size         # deployed bytecode size against the 24,576-byte limit
+npm run typecheck    # compile, then type-check tests and scripts
+```
+
+Static analysis uses [Slither](https://github.com/crytic/slither):
+
+```bash
+pip install slither-analyzer
+slither . --fail-medium
+```
+
+Slither's `timestamp` detector is disabled in `slither.config.json`: identity expiry and lock-ups are time-based by design.
 
 | Suite | What it covers |
 |---|---|
 | `IdentityRegistry.test.ts` | Signed claims, replay protection, expiry, revocation, investor links |
 | `Compliance.test.ts` | Module management and each rule, including a rule added to a token that already has holders |
 | `SecurityToken.test.ts` | Every row of the behaviour table, roles, snapshots, upgrade with state preserved |
+| `PartitionToken.test.ts` | Every reason code, operators, lock-up and conversion, controller operations, documents, accounting consistency |
 | `DvPSettlement.test.ts` | Signed terms, allowed tokens, atomicity when either leg fails, retry, expiry, cancellation |
 | `CorporateActions.test.ts` | Dividend shares, eligibility, deadline and sweep; redemption, frozen units, funding, closing |
-| `PartitionToken.test.ts` | Every reason code, operators, lock-up and conversion, controller operations, documents, accounting consistency |
 | `Deployment.test.ts` | The deployment and handover library used by the scripts; upgrades through the timelock (delay, cancel, state preserved) |
-| `Invariants.test.ts` | 400 seeded random operations per seed (transfers, mints, burns, freezes, forced transfers, recovery, KYC revocation, pause), checking after every 20 steps that: balances sum to the total supply, total supply stays within the registered supply, frozen never exceeds balance, investor aggregates match wallet balances, the holder count is exact, and unverified wallets are never credited |
+| `Invariants.test.ts` | Seeded random sequences of transfers, mints, burns, freezes, forced transfers, recovery, KYC revocation and pause, checking that balances sum to the total supply, total supply stays within the registered supply, frozen never exceeds balance, investor aggregates match wallet balances, the holder count is exact, and unverified wallets are never credited |
 
-## Local network
+### End-to-end scenario
 
-A four-validator QBFT network with a one-second block time, zero gas price and account permissioning.
-
-```bash
-cd infra/besu
-./generate.sh            # validator keys, genesis.json, static-nodes.json -> ./network (not committed)
-docker compose up -d     # JSON-RPC on http://127.0.0.1:8545 (node1 only, bound to localhost)
-docker compose down -v   # stop and delete chain data
-```
-
-| Setting | Value |
-|---|---|
-| Consensus | QBFT, 4 validators (tolerates 1 faulty validator) |
-| Chain ID | 20270 |
-| Block time | 1 second, immediate finality |
-| Gas price | 0 (`zeroBaseFee`, `--min-gas-price=0`) |
-| Hard fork | Cancun from genesis |
-| Permissioning | Only accounts in `permissions_config.toml` can submit transactions |
-
-`permissions_config.toml` lists the first 1,020 accounts of the standard development mnemonic: twenty for roles and scripts, the rest for the custodial investor wallets the backend creates. It is generated by `contracts/scripts/write-allowlist.ts`. Replace the accounts before using the network for anything other than local development. After changing the file, copy it into each `network/node*/` directory and restart the nodes.
-
-### Connecting Hardhat
-
-The `besu` network in `hardhat.config.ts` reads two variables:
-
-```bash
-export BESU_RPC_URL=http://127.0.0.1:8545
-export BESU_MNEMONIC="test test test test test test test test test test test junk"
-```
-
-The mnemonic above is the public development mnemonic; `permissions_config.toml` lists accounts derived from it.
-
-### Smoke test
-
-Deploys `USDC`, mints, and checks that a transaction from an account outside the allowlist is rejected.
+Runs the whole lifecycle against a fresh deployment on the Besu network and checks the outcome of every step, including the operations that must be rejected.
 
 ```bash
 cd contracts
-npx hardhat run scripts/network-smoke.ts --network besu
+npx hardhat run scripts/e2e.ts --network besu
 ```
 
-### Block explorer
-
-Blockscout can be started next to the network when a look at the raw chain is wanted. It is not part of the always-on stack.
-
-```bash
-cd infra/blockscout
-docker compose up -d      # http://localhost:4795, once ./infra/demo/up.sh is running
-docker compose down -v
-```
-
-The nodes do not expose the trace API, so internal transactions are not indexed. The explorer recognises the security token as a proxy and lists its transfers; fees are zero.
-
-![Block explorer](docs/screenshots/explorer.png)
+| Step | What happens | What must be rejected |
+|---|---|---|
+| 1 | Registered supply is set; three investors pass KYC | |
+| 2 | 600 units are issued | Mint to an unverified wallet; mint above the holding cap |
+| 3 | Transfer between investors | Transfer to an unverified wallet |
+| 4 | Part of a balance is frozen | Transfer of frozen units |
+| 5 | DvP: 10 units against 1,000 USDC, terms signed by both parties | Reuse of the trade number |
+| 6 | Dividend paid pro rata to record-block balances | Second claim |
+| 7 | Account frozen; court-ordered forced transfer out of it | Transfer from the frozen account |
+| 8 | Lost wallet recovered to a new wallet of the same investor | |
+| 9 | Redemption: units cancelled against cash | |
+| 10 | Balances add up to the total supply; holder count and investor balances are exact | |
 
 ## Deployment
 
@@ -303,9 +291,7 @@ npx hardhat run scripts/deploy.ts --network besu            # as the deployer (a
 npx hardhat run scripts/accept-handover.ts --network besu   # as the admin
 ```
 
-`deploy.ts` deploys and wires all contracts, grants the operational roles, and writes the addresses, the implementation address, the role holders and the first deployment block to `deployments/<network>.json`.
-
-Roles and parameters come from `scripts/config/local.json` (override with `DEPLOY_CONFIG=<path>`):
+`deploy.ts` deploys and wires all contracts, grants the operational roles, and writes the addresses, the implementation address, the role holders and the first deployment block to `deployments/<network>.json`. Roles and parameters come from `scripts/config/local.json` (override with `DEPLOY_CONFIG=<path>`).
 
 | Account | Role |
 |---|---|
@@ -327,150 +313,76 @@ Roles and parameters come from `scripts/config/local.json` (override with `DEPLO
 
 `accept-handover.ts` accepts the pending transfers, applies the configured delay for future admin transfers, and then verifies every contract: the admin is in control, each role is held by the configured account, and the deployer has no role or ownership left. It fails if anything is off.
 
-## Backend
+## Local Besu network
 
-NestJS 12, TypeORM and PostgreSQL 16. The schema changes only through migrations, and the environment is validated at startup.
-
-```bash
-cd infra/postgres && docker compose up -d     # PostgreSQL on 127.0.0.1:54320
-cd backend
-cp .env.example .env                          # set JWT_SECRET to a random value of 32+ characters
-npm ci
-npm run build && node --env-file=.env dist/main.js
-```
-
-**Sending transactions.** Every on-chain write goes through an outbox table instead of being sent from a request handler:
-
-1. The request handler records the intended call in `tx_outbox` in the same database transaction as its own data, under an idempotency key. If the business transaction rolls back, nothing is sent; if the same key is recorded twice, the first entry is returned.
-2. A worker takes the oldest open entry of each signer, one at a time, so nonces never collide. The next nonce is the higher of the node's pending count and one past the highest nonce the outbox has already signed for that signer.
-3. The call is simulated first. A call that would revert is marked `FAILED` with the decoded custom error and is never sent.
-4. The transaction is signed, its hash and raw bytes are stored (`SUBMITTED`), and only then is it broadcast. After a crash the worker looks the stored hash up and, if the node does not know it, re-broadcasts the very same bytes. A transaction is therefore never signed twice.
-5. The receipt moves the entry to `CONFIRMED` or `FAILED`. A failed entry does not block the entries behind it.
-
-**Tests.** Integration tests run against a real PostgreSQL and a local in-memory chain that the test setup starts and deploys the contracts to:
+A four-validator QBFT network with a one-second block time, zero gas price and account permissioning. Requires Docker with Compose v2.
 
 ```bash
-cd infra/postgres && docker compose up -d
-cd backend && npm run test:e2e
+cd infra/besu
+./generate.sh            # validator keys, genesis.json, static-nodes.json -> ./network (not committed)
+docker compose up -d     # JSON-RPC on http://127.0.0.1:8545 (node1 only, bound to localhost)
+docker compose down -v   # stop and delete chain data
 ```
 
-**Operators and roles.** Operators sign in with a username and password (scrypt hashes) and receive a bearer token. They never hold chain keys; they act by filing requests.
-
-| Role | Can do |
+| Setting | Value |
 |---|---|
-| `VIEWER` | Read everything |
-| `REQUESTER` | Onboard investors, file token operations |
-| `APPROVER` | Approve or reject operations filed by someone else |
+| Consensus | QBFT, 4 validators (tolerates 1 faulty validator) |
+| Chain ID | 20270 |
+| Block time | 1 second, immediate finality |
+| Gas price | 0 (`zeroBaseFee`, `--min-gas-price=0`) |
+| Hard fork | Cancun from genesis (OpenZeppelin 5.6 emits `mcopy`) |
+| Permissioning | Only accounts in `permissions_config.toml` can submit transactions |
 
-The operator is loaded on every request, so deactivating an account or changing its roles takes effect immediately rather than when the token expires. Login attempts are rate-limited.
+`permissions_config.toml` is generated by `contracts/scripts/write-allowlist.ts` from the public development mnemonic. Replace the accounts before using the network for anything other than local development.
 
-**Keys.** The backend is custodial: it holds the keys of the operational roles (issuer, enforcer, pauser, registrar, settlement, treasury), of the KYC issuer and of investor wallets, all derived from one mnemonic. This is a development key store; production would put an HSM or a signing service behind the same interface.
-
-**Investors.** Onboarding an investor creates a wallet, has the KYC issuer key sign an EIP-712 claim, and submits it to the identity registry. Personal data stays in the database; the chain only sees an opaque `investorId`. An investor can have several wallets, and a wallet's KYC can be revoked and renewed.
-
-**Token operations.** Operations are filed as requests and reach the chain through the outbox.
-
-| Operation | Signed by | Needs approval |
-|---|---|---|
-| `MINT`, `BURN` | Issuer | No |
-| `PAUSE`, `UNPAUSE` | Pauser | No |
-| `FREEZE_ADDRESS`, `UNFREEZE_ADDRESS`, `FREEZE_PARTIAL`, `UNFREEZE_PARTIAL` | Enforcer | Yes |
-| `FORCED_TRANSFER`, `RECOVERY` | Enforcer | Yes |
-| `SET_REGISTERED_SUPPLY` | Registrar | Yes |
-
-Operations that override a holder's control of their assets, or change the registered supply, follow a four-eyes rule: a second operator must approve, and the operator who filed a request can neither approve nor reject it. The rule is enforced in the service and by a database constraint. These operations also require the hash of a supporting document. Every operation carries a reason code that is recorded on chain, and a request shows its approval trail together with the status of its transaction, including the decoded error if it failed.
-
-**Ordering between signers.** Entries of one signer run in order, entries of different signers run independently. Two links tie them together where needed: `depends_on` (wait until these are confirmed, fail if one of them failed) and `runs_after` (wait until these have finished, whatever the outcome). A broadcast the node refuses for good, such as a signer that cannot pay for gas, fails the entry instead of being retried forever, and its nonce is released.
-
-**Settlement.** A trade reported by the venue becomes four outbox entries: the registration of the trade with both parties' EIP-712 signatures, each party's allowance for its own leg, and the settlement, which depends on the other three. A trade number is accepted once; reporting it again returns the existing trade. If settlement fails (the buyer cannot pay, the seller is frozen, a compliance rule rejects the delivery) neither leg moves, the trade shows the decoded reason, and it can be retried once the cause is fixed, or cancelled. Because an allowance is one number per party, a party's next trade waits for their previous settlement to finish.
-
-**Indexer and internal ledger.** The indexer reads the events of every contract into `chain_events` and projects the token's events onto an internal ledger (`holdings`, `token_state`). Events are unique on transaction hash and log index, only newly inserted events are applied, and the cursor advances in the same database transaction, so reading a block twice changes nothing. The projection is a pure function of the event stream. `chain_events` is also the audit trail: every privileged action with its operator and reason.
-
-**Reconciliation.** The chain is the book of record. Reconciliation first brings the indexer to the chain head, then reads every value from the chain at exactly the block the ledger reflects and compares: each wallet's balance, frozen amount and frozen flag, total and registered supply, pause state, the sum of balances, each investor's combined balance, and the holder count. Differences are stored as a report. The remedy for a difference is to rebuild the ledger by replaying the stored events; the chain is never adjusted.
-
-**Dividends and redemptions.** The treasury key funds and opens them, investor keys claim, and the amounts paid are read back from the indexed events. On the test network the treasury's cash comes from the test token's open mint.
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /health` | Liveness and database connectivity |
-| `GET /docs` | OpenAPI documentation |
-| `POST /auth/login`, `GET /auth/me` | Sign in; current operator |
-| `GET /investors`, `GET /investors/:id` | Investors with wallets and KYC status |
-| `POST /investors`, `POST /investors/:id/wallets` | Onboard an investor; add a wallet |
-| `POST /wallets/:address/renew`, `POST /wallets/:address/revoke` | Renew or revoke a wallet's KYC |
-| `GET /operations`, `GET /operations/:id` | Operation requests with approval trail and execution status |
-| `POST /operations` | File an operation |
-| `POST /operations/:id/approve`, `POST /operations/:id/reject` | Decide on a request |
-| `GET /trades`, `GET /trades/:id` | Trades with settlement status |
-| `POST /trades` | Report a trade from the venue |
-| `POST /otc/trades` | Mock venue: generates the trade number |
-| `POST /trades/:id/retry`, `POST /trades/:id/cancel` | Retry or cancel a trade that has not settled |
-| `POST /wallets/:address/cash` | Test faucet for the cash token |
-| `GET /ledger/state`, `GET /ledger/holdings` | Internal ledger and indexer progress |
-| `GET /events` | Indexed chain events, filterable by name, contract and address |
-| `GET /recon/reports`, `POST /recon/run` | Reconciliation reports; run one now |
-| `POST /recon/rebuild` | Rebuild the ledger from stored events (approver) |
-| `GET /dividends`, `POST /dividends` | Dividends; open one on balances at the current block |
-| `POST /dividends/:id/claims`, `POST /dividends/:id/sweep` | Claim a share; sweep after the deadline |
-| `GET /redemptions`, `POST /redemptions` | Redemption rounds; open one |
-| `POST /redemptions/:id/redeem`, `POST /redemptions/:id/close` | Redeem units; close after the deadline |
-
-## Frontend
-
-Next.js 16 (App Router), React 19, TanStack Query and Tailwind CSS 4. The UI is in Korean. The browser only talks to the Next.js app; `/api/*` is proxied to the backend (`BACKEND_URL`, default `http://127.0.0.1:4780`), and there is no wallet connection: operators act through the backend, which signs.
+The `besu` network in `hardhat.config.ts` reads two variables:
 
 ```bash
-cd frontend
-npm ci
-npm run build && npm start      # http://localhost:4790
+export BESU_RPC_URL=http://127.0.0.1:8545
+export BESU_MNEMONIC="test test test test test test test test test test test junk"
 ```
 
-The backend must run with `DEMO_MODE=on`: the console is entered through a one-click demo session that signs the visitor in as two operators at once, a requester and an approver. A switch in the header changes perspective between requester, approver and investor, so one person can walk through flows that need two.
-
-| Screen | What it shows |
-|---|---|
-| Guided scenario | Nine steps that send real transactions: KYC, issuance, transfer, partial freeze, DvP, dividend, account freeze and forced transfer, wallet recovery, reconciliation. Each step includes attempts that must be rejected and explains the rejection in plain language |
-| Dashboard | Supply against registered supply, holders, indexer progress, last reconciliation, holdings, recent events |
-| Investors | Onboarding, wallets, KYC status, renew and revoke |
-| Issuance | Mint, burn, registered supply, with the reason a request was rejected |
-| Enforcement | Freeze, forced transfer, recovery and pause requests, and the approval queue |
-| Trades | Mock venue, settlement status, retry and cancel, test cash faucet |
-| Corporate actions | Dividends and redemptions with claims and amounts paid |
-| Audit log | Every indexed chain event with operator and reason, filterable |
-| Reconciliation | Run a comparison, corrupt the ledger on purpose, see it detected, rebuild |
-| Investor account | Balances, free and frozen units, transfers with the same on-chain checks |
-
-Tables collapse into cards on narrow screens.
-
-| | |
-|---|---|
-| ![Dashboard](docs/screenshots/dashboard.png) Dashboard | ![Enforcement](docs/screenshots/enforcement.png) Enforcement history, approver view |
-| ![Issuance](docs/screenshots/issuance.png) A rejected mint with its explanation | ![Trades](docs/screenshots/trades.png) A settled trade |
-| ![Audit log](docs/screenshots/audit.png) Audit log | ![Reconciliation](docs/screenshots/recon.png) Reconciliation reports |
-| ![Investor account](docs/screenshots/wallet.png) Investor account | |
-
-The investor names in the screenshots are fictional.
-
-## End-to-end scenario
-
-Runs the whole lifecycle against a fresh deployment and checks the outcome of every step, including the operations that must be rejected.
+A smoke test deploys `USDC`, mints, and checks that a transaction from an account outside the allowlist is rejected:
 
 ```bash
 cd contracts
-npx hardhat run scripts/e2e.ts --network besu
+npx hardhat run scripts/network-smoke.ts --network besu
 ```
 
-| Step | What happens | What must be rejected |
-|---|---|---|
-| 1 | Registered supply is set; three investors pass KYC | |
-| 2 | 600 units are issued | Mint to an unverified wallet; mint above the holding cap |
-| 3 | Transfer between investors | Transfer to an unverified wallet |
-| 4 | Part of a balance is frozen | Transfer of frozen units |
-| 5 | DvP: 10 units against 1,000 USDC, terms signed by both parties | Reuse of the trade number |
-| 6 | Dividend paid pro rata to record-block balances | Second claim |
-| 7 | Account frozen; court-ordered forced transfer out of it | Transfer from the frozen account |
-| 8 | Lost wallet recovered to a new wallet of the same investor | |
-| 9 | Redemption: units cancelled against cash | |
-| 10 | Balances add up to the total supply; holder count and investor balances are exact | |
+Besu returns raw revert data rather than decoded error names; the scripts decode custom errors with the contract interface.
 
-Accounts 10 to 14 of the development mnemonic act as investors.
+An optional Blockscout explorer is in `infra/blockscout` (`docker compose up -d`, then http://localhost:4795).
+
+## Off-chain stack
+
+The contracts are exercised by a small issuer-side backend and console. They are secondary to the contracts and are described briefly here.
+
+```
+contracts/        Hardhat project: Solidity sources, tests, scripts
+backend/          NestJS 12, TypeORM, PostgreSQL 16
+frontend/         Next.js 16, React 19, TanStack Query, Tailwind CSS 4 (UI in Korean)
+infra/besu/       Local 4-validator QBFT network
+infra/postgres/   PostgreSQL for the backend
+infra/demo/       Everything in one Compose project, with start and reset scripts
+infra/blockscout/ Optional block explorer
+```
+
+Everything on one machine:
+
+```bash
+./infra/demo/up.sh       # generate the chain, deploy the contracts, start the backend and frontend
+open http://localhost:4790
+./infra/demo/reset.sh    # fresh contracts, empty database
+```
+
+What the backend does with the contracts:
+
+- **Transactional outbox.** Every on-chain write is recorded in `tx_outbox` in the same database transaction as the business data, then sent by a worker one signer at a time. Calls are simulated first, and a signed transaction's hash and raw bytes are stored before broadcast, so a crash never leads to signing twice. `depends_on` and `runs_after` links order entries across signers (for example, a settlement waits for both parties' allowances).
+- **Approval workflow.** Operations that override a holder's control — freezes, forced transfer, recovery — and changes to the registered supply need a second operator's approval, enforced in the service and by a database constraint.
+- **Indexer and reconciliation.** Contract events are indexed idempotently on `(txHash, logIndex)` into an internal ledger. Reconciliation compares the ledger with chain state at the same block — balances, frozen amounts, supply, investor aggregates, holder count — and the remedy for a difference is to replay the stored events; the chain is never adjusted.
+
+The console includes a guided scenario that sends real transactions through each contract, including the attempts the contracts must reject:
+
+![Guided scenario](docs/screenshots/guide.png)
+
+Backend: `cd backend && cp .env.example .env && npm ci && npm run build && node --env-file=.env dist/main.js` (OpenAPI at `/docs`; integration tests with `npm run test:e2e`). Frontend: `cd frontend && npm ci && npm run build && npm start`. Investor names in the screenshots are fictional.

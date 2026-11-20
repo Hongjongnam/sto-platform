@@ -1,3 +1,6 @@
+# local only
+_private/
+
 # dependencies
 node_modules/
 
